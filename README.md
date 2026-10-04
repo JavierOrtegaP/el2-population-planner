@@ -1,10 +1,11 @@
 # Population Planner for ENDLESS Legend 2
 
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/JavierOrtegaP)
-
-*If you like my work and Population Planner saves you some micromanagement, you can
-[sponsor me on GitHub](https://github.com/sponsors/JavierOrtegaP). It's completely optional, but always appreciated,
-and it keeps me making more mods. Thank you! ❤️*
+> [!TIP]
+> **Enjoying Population Planner?** If it saves you some micromanagement and you like my work, you can
+> [sponsor me on GitHub](https://github.com/sponsors/JavierOrtegaP). It's completely optional, but always appreciated,
+> and it keeps me making more mods. Thank you! ❤️
+>
+> [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/JavierOrtegaP)
 
 A [BepInEx](https://github.com/BepInEx/BepInEx) mod that takes the population micromanagement off your hands:
 
