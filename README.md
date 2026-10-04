@@ -1,5 +1,7 @@
 # Population Planner for ENDLESS Legend 2
 
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/JavierOrtegaP)
+
 A [BepInEx](https://github.com/BepInEx/BepInEx) mod that takes the population micromanagement off your hands:
 
 - **Growth** — picks every city's next population so you unlock population bonuses one after another, without
