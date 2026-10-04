@@ -2,7 +2,7 @@ using System;
 
 namespace PopulationPlanner
 {
-    // The approval level a city is held at, up to the player's minimum, when the mod weighs whether it pays.
+    // The approval level a city's jobs are held at, up to the player's minimum, when the mod weighs whether it pays.
     internal sealed class LevelChoice
     {
         // Off, Content, Happy or Jubilant.
@@ -72,13 +72,13 @@ namespace PopulationPlanner
             {
                 return null;
             }
-            string holding = $"holding {choice.Level} instead";
+            string holding = $"job moves only keep {choice.Level} (growth still favors approval)";
             if (choice.MovesDelta == null)
             {
-                return $"{choice.Skipped} is out of reach with job moves now (no more populations that can move for approval); {holding}";
+                return $"{choice.Skipped} is out of reach with job moves now (no more populations that can move for approval), so {holding}";
             }
             return $"{choice.Skipped} isn't worth it here now: its job moves would change {JobOptimizer.Describe(choice.MovesDelta)} a turn, "
-                + $"for {JobOptimizer.Describe(choice.LevelGain)} from {choice.Skipped}; {holding}";
+                + $"for {JobOptimizer.Describe(choice.LevelGain)} from {choice.Skipped}, so {holding}";
         }
 
         // The game's level definition for an approval value.

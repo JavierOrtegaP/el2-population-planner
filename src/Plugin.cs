@@ -77,7 +77,7 @@ namespace PopulationPlanner
                 new ConfigDescription("Start putting approval first this many points above the level, so the next population (about -3 approval as Citizen or Artisan) doesn't drop the city below it.",
                     new AcceptableValueRange<int>(0, 30)));
             ApprovalOnlyWhenItPays = Config.Bind("Approval", "OnlyWhenItPays", true,
-                "Content is always kept: below it a city falls into crisis and rebels. Happy (+15% Food and Industry) and Jubilant (+30%) are only chased when that bonus is worth more than the job moves it takes to get there, both weighed by the city's job strategy; otherwise the city is held at the highest level that pays.");
+                "Content is always kept: below it a city falls into crisis and rebels. Happy (+15% Food and Industry) and Jubilant (+30%) are only chased when that bonus is worth more than the job moves it takes to get there, both weighed by the city's job strategy; otherwise job moves only keep the highest level that pays. Growth still favors populations that add approval (it costs no yields).");
             ToggleKey = Config.Bind("Window", "ToggleKey", "F7",
                 "Key that opens and closes the window (a Unity Input System key name: F7, F8, Backquote, Insert...). F7 is free in the game's default bindings.");
             UiScale = Config.Bind("Window", "Size", 0f,

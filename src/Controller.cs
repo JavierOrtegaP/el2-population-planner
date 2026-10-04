@@ -268,7 +268,16 @@ namespace PopulationPlanner
             return float.IsNaN(minimum) ? float.NaN : minimum + Math.Max(0f, Plugin.ApprovalBuffer.Value);
         }
 
-        // The level the city is held at, worked out again whenever the state, the options or the city's approval change.
+        // Growth puts approval first below the city's minimum as configured: growing a population that adds approval costs
+        // no yields, so "only when it pays" (which weighs job moves) leaves it alone.
+        public float GrowthApprovalTarget(CityState city)
+        {
+            return Settings == null || State == null
+                ? float.NaN
+                : ApprovalRule.Target(State, Settings, city, Plugin.MinimumApproval.Value, Plugin.ApprovalBuffer.Value);
+        }
+
+        // The level the city's jobs are held at, worked out again whenever the state, the options or its approval change.
         public LevelChoice LevelChoiceOf(CityState city)
         {
             string wanted = Settings?.GetCity(city.Guid)?.MinApproval ?? Plugin.MinimumApproval.Value;
@@ -470,7 +479,7 @@ namespace PopulationPlanner
                 SpreadFirst = Plugin.SpreadFirst.Value,
                 ContinueAfterList = Plugin.ContinueAfterList.Value,
                 IsBlocked = IsBlocked,
-                ApprovalTarget = ApprovalTarget,
+                ApprovalTarget = GrowthApprovalTarget,
                 ApprovalOf = ApprovalOf,
             };
             Plan = Planner.Plan(State, Settings, options);

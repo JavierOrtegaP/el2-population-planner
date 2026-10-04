@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1 — 2026-10-04
+
+- *Only when it pays* weighs job moves only, as intended: below the minimum you picked, cities again grow the
+  population that adds the most approval (it costs no yields). In 1.2.0, a city whose next level was out of reach
+  with job moves also stopped growing for approval.
+
 ## 1.2.0 — 2026-10-04
 
 - Minimum approval, *only when it pays* (on by default): Content is always kept, but Happy (+15% Food and Industry)

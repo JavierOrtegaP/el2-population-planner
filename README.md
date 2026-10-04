@@ -77,8 +77,10 @@ Above the level, no job swap may take a city back under it.
 By default it only does this when it pays. Content is always kept: below it a city falls into crisis and, in the
 end, rebels. But Happy only adds +15% to the city's Food and Industry gain, and Jubilant +30% (read from the game
 data), so the mod first works out the job moves it would take to get there and compares what they cost with that
-bonus, both weighed by the city's job strategy. If the moves cost more, the city is held at the highest level that
-pays, and the Cities tab shows the numbers. Switch *Only when it pays* off to always chase the level you picked.
+bonus, both weighed by the city's job strategy. If the moves cost more, job moves only keep the highest level that
+pays, and the Cities tab shows the numbers. Growth is not weighed: below your level, cities still grow the population
+that adds the most approval, which costs no yields. Switch *Only when it pays* off to always chase the level you
+picked with job moves too.
 
 ### You stay in charge
 
