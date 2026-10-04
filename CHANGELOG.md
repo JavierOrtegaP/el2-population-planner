@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.3 — 2026-10-04
+
+- No changes to the mod itself. The download now comes with the current README, and Population Planner is also on
+  [Nexus Mods](https://www.nexusmods.com/endlesslegend2/mods/9), updated with every release.
+
 ## 1.2.2 — 2026-10-04
 
 - Fixed: a population the game refused to add to a settlement that isn't a city (which the mod doesn't manage) was

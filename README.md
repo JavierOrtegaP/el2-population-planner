@@ -98,8 +98,9 @@ picked with job moves too.
    right-click ENDLESS Legend 2 > Manage > Browse local files — the folder with `Endless Legend 2.exe`), so that
    `winhttp.dll` sits next to the game's exe. Start the game once.
    - Linux / Steam Deck: set the game's launch options to `WINEDLLOVERRIDES="winhttp=n,b" %command%`.
-2. Download `PopulationPlanner-<version>.zip` from the [releases](../../releases) and extract it into the same
-   folder. The mod ends up in `BepInEx/plugins/PopulationPlanner/`.
+2. Download `PopulationPlanner-<version>.zip` from the [releases](../../releases) (or from
+   [Nexus Mods](https://www.nexusmods.com/endlesslegend2/mods/9)) and extract it into the same folder. The mod ends up
+   in `BepInEx/plugins/PopulationPlanner/`.
 3. Load a game and press **F7**.
 
 If nothing happens, check `BepInEx/LogOutput.log` for `Population Planner ... active`.
