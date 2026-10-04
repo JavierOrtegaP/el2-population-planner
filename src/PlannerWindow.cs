@@ -618,9 +618,10 @@ namespace PopulationPlanner
             string last = controller.LastJobChange(city.Guid);
             int swaps = controller.SwapsThisTurn(city.Guid);
             string prefix = controller.ApprovalFirst(city) ? "approval first: " : string.Empty;
+            string limit = controller.JobLimitReached(city.Guid) ? $" (your limit of {Plugin.MaxJobChanges.Value} a turn is reached: more next turn)" : string.Empty;
             if (last != null)
             {
-                return prefix + (swaps > 1 ? $"{swaps} changes this turn, last: " : "changed: ") + last;
+                return prefix + (swaps > 1 ? $"{swaps} changes this turn, last: " : "changed: ") + last + limit;
             }
             return prefix + "no better job swap found";
         }
@@ -852,6 +853,15 @@ namespace PopulationPlanner
                 Defer(() => Plugin.JobMinGain.Value = Mathf.Min(20f, Plugin.JobMinGain.Value + 0.5f));
             }
             GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Most job changes per city per turn (each population moves at most once a turn anyway)", textStyle, GUILayout.Width(420f));
+            int jobLimit = Plugin.MaxJobChanges.Value;
+            if (GUILayout.Button(new GUIContent(jobLimit > 0 ? jobLimit.ToString() : "no limit", "Click to change: no limit, 5, 10, 20"), GUILayout.Width(122f)))
+            {
+                int next = NextJobLimit(jobLimit);
+                Defer(() => Plugin.MaxJobChanges.Value = next);
+            }
+            GUILayout.EndHorizontal();
 
             GUILayout.Space(8f);
             GUILayout.Label("When I pick a city's next population myself", headingStyle);
@@ -964,6 +974,19 @@ namespace PopulationPlanner
                 case "SettlementApproval_VeryHappy": return "(Jubilant)";
                 default: return string.Empty;
             }
+        }
+
+        // No limit -> 5 -> 10 -> 20 -> no limit (a value set in the options file goes to the next step up).
+        private static int NextJobLimit(int current)
+        {
+            foreach (int step in new[] { 5, 10, 20 })
+            {
+                if (current < step)
+                {
+                    return step;
+                }
+            }
+            return 0;
         }
 
         // Per-city minimum: all (global) -> Off -> Content -> Happy -> Jubilant -> all.

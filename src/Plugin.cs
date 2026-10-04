@@ -35,6 +35,7 @@ namespace PopulationPlanner
         internal static ConfigEntry<int> FailedGrowthCooldown;
         internal static ConfigEntry<bool> OptimizeJobs;
         internal static ConfigEntry<float> JobMinGain;
+        internal static ConfigEntry<int> MaxJobChanges;
         internal static ConfigEntry<string> MinimumApproval;
         internal static ConfigEntry<int> ApprovalBuffer;
         internal static ConfigEntry<string> ToggleKey;
@@ -65,6 +66,8 @@ namespace PopulationPlanner
                 "Swap populations between jobs so their job effects apply (e.g. Daughter of Bor as artisans, Xavius next to other population types, Sollusk kept together). How many work each job stays as the city's job strategy set it.");
             JobMinGain = Config.Bind("Jobs", "MinimumGain", 0.5f,
                 new ConfigDescription("A swap must gain at least this much (yields weighted by the city's job strategy) to be done.", new AcceptableValueRange<float>(0.1f, 20f)));
+            MaxJobChanges = Config.Bind("Jobs", "MaxChangesPerCityPerTurn", 0,
+                new ConfigDescription("The most job changes the mod makes in one city per turn; 0 = no limit. Each population moves at most once a turn either way, so a city always settles within the turn.", new AcceptableValueRange<int>(0, 100)));
             MinimumApproval = Config.Bind("Approval", "MinimumLevel", ApprovalRule.Off,
                 new ConfigDescription("Keep every city at least at this approval level (Off, Content, Happy or Jubilant; cities can override it in the window). "
                     + "Below it, the city grows the population adding the most approval there and its jobs put approval first.",

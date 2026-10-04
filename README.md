@@ -48,8 +48,9 @@ Many populations have job effects, read by the mod from the game data for every 
 The game already counts job bonuses when it places a *new* population, but not the mixing effects, and it never
 revisits populations already at work. The mod swaps populations between jobs to get the most out of each city's own
 job strategy (Balanced / Food / Industry / Science): how many work each job stays as the strategy set it; only who
-works where changes. One swap at a time per city, at most 10 a turn, each population at most once a turn. Severed
-Claws (and any population that adds job slots) are never moved.
+works where changes. One swap at a time per city, and each population at most once a turn, so a city settles within
+the turn (you can also cap the changes per city per turn). Severed Claws (and any population that adds job slots)
+are never moved.
 
 ### Minimum approval (optional)
 
@@ -118,6 +119,7 @@ per-city choices are saved per game in `BepInEx/config/PopulationPlanner/<game i
 | General / FailedGrowthCooldownTurns | 5 | Turns to avoid a population the game failed to add to a city. |
 | Jobs / OptimizeJobs | true | Swap populations between jobs. |
 | Jobs / MinimumGain | 0.5 | Smallest gain worth a swap (yields weighted by the city's job strategy). |
+| Jobs / MaxChangesPerCityPerTurn | 0 | Most job changes per city per turn; 0 = no limit. |
 | Approval / MinimumLevel | Off | Off, Content, Happy or Jubilant. |
 | Approval / Buffer | 3 | Act this many points above the level. |
 | Window / ToggleKey | F7 | Unity Input System key name. F7 is unused by the game. Not used with Mod Menu. |

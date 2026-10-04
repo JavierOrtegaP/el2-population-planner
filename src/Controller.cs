@@ -29,7 +29,6 @@ namespace PopulationPlanner
             public int Attempts;
         }
 
-        private const int MaxSwapsPerCityPerTurn = 10;
 
         private sealed class JobPlan
         {
@@ -324,6 +323,14 @@ namespace PopulationPlanner
 
         public int SwapsThisTurn(ulong city) => swapsThisTurn.TryGetValue(city, out int n) ? n : 0;
 
+        // The player's optional cap on job changes per city per turn (0 = none) is used up. Without it, a city still
+        // settles: each population moves at most once a turn.
+        public bool JobLimitReached(ulong city)
+        {
+            int max = Plugin.MaxJobChanges.Value;
+            return max > 0 && SwapsThisTurn(city) >= max;
+        }
+
         public string LastJobChange(ulong city) => lastJobChange.TryGetValue(city, out string text) ? text : null;
 
         public string JobName(CityState city, ulong job)
@@ -514,7 +521,7 @@ namespace PopulationPlanner
                     AdvanceJobPlan(city, plan, now);
                     continue;
                 }
-                if (SwapsThisTurn(city.Guid) >= MaxSwapsPerCityPerTurn)
+                if (JobLimitReached(city.Guid))
                 {
                     continue;
                 }

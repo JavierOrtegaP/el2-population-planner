@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1 — 2026-10-04
+
+- Job changes are no longer capped at 10 per city per turn, so a big city is sorted out in the same turn (for
+  example after changing its job strategy). Each population still moves at most once a turn. A cap can be set with
+  Jobs / MaxChangesPerCityPerTurn, also in the window's Settings; a city that reaches it says so in the Cities tab.
+
 ## 1.1.0 — 2026-10-04
 
 - Populations tab: every population in the game with what each of its collection bonuses gives (the game's own text,
