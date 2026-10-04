@@ -43,7 +43,8 @@ namespace PopulationPlanner
             {
                 Sandbox sandbox = SandboxManager.Sandbox;
                 Empire empire = ReferenceEquals(settlement, null) ? null : settlement.Empire.Entity;
-                if (sandbox == null || ReferenceEquals(empire, null) || empire.Index != sandbox.LocalEmpireIndex)
+                // Only the empire's cities: those are what the mod picks populations for.
+                if (sandbox == null || ReferenceEquals(empire, null) || empire.Index != sandbox.LocalEmpireIndex || settlement.SettlementStatus != Amplitude.Mercury.Data.Simulation.SettlementStatuses.City)
                 {
                     return;
                 }

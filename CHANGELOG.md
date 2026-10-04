@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.2 — 2026-10-04
+
+- Fixed: a population the game refused to add to a settlement that isn't a city (which the mod doesn't manage) was
+  logged as a warning, with the settlement's number instead of a name. Only cities count now, and a refusal the game
+  repeats within a turn is logged once.
+
 ## 1.2.1 — 2026-10-04
 
 - *Only when it pays* weighs job moves only, as intended: below the minimum you picked, cities again grow the

@@ -52,6 +52,7 @@ namespace PopulationPlanner
         // Each city's approval level choice and what it was worked out from.
         private readonly Dictionary<ulong, ((int, int, long, int, string) Key, LevelChoice Choice)> levelChoices = new Dictionary<ulong, ((int, int, long, int, string) Key, LevelChoice Choice)>();
         private readonly HashSet<string> loggedLevelNotes = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> loggedFailures = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<ulong, long> jobCheckedAt = new Dictionary<ulong, long>();
         // Approval and food when the mod first changed a city's jobs this turn, and what its changes added since: the
         // game may only update those values at the end of the turn, and the mod must not count the same gain twice.
@@ -550,6 +551,7 @@ namespace PopulationPlanner
             jobNotes.Clear();
             loggedJobNotes.Clear();
             loggedLevelNotes.Clear();
+            loggedFailures.Clear();
             jobCheckedAt.Clear();
             jobTurnBase.Clear();
             jobTurnDelta.Clear();
@@ -807,7 +809,11 @@ namespace PopulationPlanner
             {
                 int until = failure.Turn + Math.Max(1, Plugin.FailedGrowthCooldown.Value);
                 Block(failure.City, failure.Pop, until);
-                Plugin.Log.LogWarning($"Turn {failure.Turn}: the game could not add {Names.Pop(failure.Pop)} to {CityName(failure.City)}; not picking it there before turn {until}.");
+                // The game may try the same population several times in a turn: one line is enough.
+                if (loggedFailures.Add($"{failure.Turn}:{failure.City}:{failure.Pop}"))
+                {
+                    Plugin.Log.LogWarning($"Turn {failure.Turn}: the game could not add {Names.Pop(failure.Pop)} to {CityName(failure.City)}; not picking it there before turn {until}.");
+                }
             }
         }
 
