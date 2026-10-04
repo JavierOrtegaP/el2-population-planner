@@ -18,6 +18,8 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that takes the population mi
 Everything is shown and adjustable in an in-game window (**F7**), or on its own page of
 [Mod Menu](https://github.com/JavierOrtegaP/el2-mod-menu) if you use it.
 
+![Population Planner's page in Mod Menu: the order it aims for, each population's progress, and the unlocked bonuses](docs/population-planner.png)
+
 ## What it does
 
 ### Growth: one bonus at a time
