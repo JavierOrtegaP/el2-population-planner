@@ -20,12 +20,12 @@ namespace PopulationPlanner
     [BepInPlugin(Guid, DisplayName, Version)]
     public class Plugin : BaseUnityPlugin
     {
-        public const string Guid = "javierortegap.el2.populationplanner";
+        public const string Guid = "el2.populationplanner";
         public const string DisplayName = "Population Planner";
         public const string Version = BuildInfo.Version;
 
-        // The id of pre-release builds: their options file is taken over once.
-        private const string OldGuid = "el2.populationplanner";
+        // An id briefly used by the first 1.0.0 upload: its options file is taken over once.
+        private static readonly string[] PreviousGuids = { "javierortegap.el2.populationplanner" };
 
         internal static ManualLogSource Log;
         internal static ConfigEntry<bool> Automation;
@@ -140,12 +140,15 @@ namespace PopulationPlanner
         {
             try
             {
-                string old = System.IO.Path.Combine(Paths.ConfigPath, OldGuid + ".cfg");
-                if (System.IO.File.Exists(old) && !System.IO.File.Exists(Config.ConfigFilePath))
+                foreach (string previous in PreviousGuids)
                 {
-                    System.IO.File.Move(old, Config.ConfigFilePath);
-                    Config.Reload();
-                    Log.LogInfo($"Options taken over from {OldGuid}.cfg");
+                    string old = System.IO.Path.Combine(Paths.ConfigPath, previous + ".cfg");
+                    if (System.IO.File.Exists(old) && !System.IO.File.Exists(Config.ConfigFilePath))
+                    {
+                        System.IO.File.Move(old, Config.ConfigFilePath);
+                        Config.Reload();
+                        Log.LogInfo($"Options taken over from {previous}.cfg");
+                    }
                 }
             }
             catch (Exception e)

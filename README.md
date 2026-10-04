@@ -85,7 +85,7 @@ Above the level, no job swap may take a city back under it.
 If nothing happens, check `BepInEx/LogOutput.log` for `Population Planner ... active`.
 
 To update, extract the new zip over the old files. To uninstall, delete `BepInEx/plugins/PopulationPlanner` (and,
-if you like, `BepInEx/config/javierortegap.el2.populationplanner.cfg` and `BepInEx/config/PopulationPlanner/`). The
+if you like, `BepInEx/config/el2.populationplanner.cfg` and `BepInEx/config/PopulationPlanner/`). The
 mod only gives the game its own orders, the same as clicking in the UI, so saves don't depend on it.
 
 ## The window (F7)
@@ -99,7 +99,7 @@ mod only gives the game its own orders, the same as clicking in the UI, so saves
 
 ## Options
 
-Saved in `BepInEx/config/javierortegap.el2.populationplanner.cfg`, all also editable in the window. Your order and
+Saved in `BepInEx/config/el2.populationplanner.cfg`, all also editable in the window. Your order and
 per-city choices are saved per game in `BepInEx/config/PopulationPlanner/<game id>.json`.
 
 | Option | Default | |
