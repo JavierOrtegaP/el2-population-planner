@@ -51,6 +51,9 @@ namespace PopulationPlanner
         private readonly Dictionary<ulong, float[]> jobTurnBase = new Dictionary<ulong, float[]>();
         private readonly Dictionary<ulong, float[]> jobTurnDelta = new Dictionary<ulong, float[]>();
         private int jobTurn = -1;
+        // Each city's job strategy weights when last seen: a change means the game has just placed its populations again.
+        private readonly Dictionary<ulong, float[]> strategyWeights = new Dictionary<ulong, float[]>();
+        private int strategyCheckedVersion = -1;
         // "city|pop" -> first turn that population may be picked again in that city.
         private readonly Dictionary<string, int> blockedUntil = new Dictionary<string, int>(StringComparer.Ordinal);
         private string gameId;
@@ -118,6 +121,7 @@ namespace PopulationPlanner
             {
                 StartJobTurn();
             }
+            NoticeStrategyChanges();
             if (State.Version != plannedVersion || Revision != plannedRevision)
             {
                 Replan();
@@ -384,6 +388,8 @@ namespace PopulationPlanner
             pending.Clear();
             blockedUntil.Clear();
             jobTurn = -1;
+            strategyWeights.Clear();
+            strategyCheckedVersion = -1;
             plannedVersion = -1;
             summaryLogged = false;
             Names.ClearCache();
@@ -496,6 +502,65 @@ namespace PopulationPlanner
             jobCheckedAt.Clear();
             jobTurnBase.Clear();
             jobTurnDelta.Clear();
+        }
+
+        // The player changed a city's job strategy: the game has just placed all its populations again by its own rules, so
+        // this turn's job moves there no longer stand. The mod starts over in that city with the new strategy's weights,
+        // instead of leaving the populations it already moved this turn wherever the game put them until next turn.
+        private void NoticeStrategyChanges()
+        {
+            if (strategyCheckedVersion == State.Version)
+            {
+                return;
+            }
+            strategyCheckedVersion = State.Version;
+            foreach (CityState city in State.Cities)
+            {
+                float[] weights = city.Jobs?.Weights;
+                if (weights == null)
+                {
+                    continue;
+                }
+                bool seen = strategyWeights.TryGetValue(city.Guid, out float[] before);
+                strategyWeights[city.Guid] = (float[])weights.Clone();
+                if (!seen || SameWeights(before, weights))
+                {
+                    continue;
+                }
+                foreach (JobCategory job in city.Jobs.Categories)
+                {
+                    foreach (JobPop pop in job.Pops)
+                    {
+                        frozenPops.Remove(pop.Guid);
+                    }
+                }
+                swapsThisTurn.Remove(city.Guid);
+                jobPlans.Remove(city.Guid);
+                jobCheckedAt.Remove(city.Guid);
+                jobTurnBase.Remove(city.Guid);
+                jobTurnDelta.Remove(city.Guid);
+                lastJobChange.Remove(city.Guid);
+                if (Plugin.LogDecisions.Value)
+                {
+                    Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: job strategy changed and the game placed its populations again; optimizing them for the new strategy.");
+                }
+            }
+        }
+
+        private static bool SameWeights(float[] a, float[] b)
+        {
+            if (a.Length != b.Length)
+            {
+                return false;
+            }
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (Math.Abs(a[i] - b[i]) > 1e-4f)
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         // One swap at a time per city: each is planned on the latest state, so the game's own reactions (including the

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.2 — 2026-10-04
+
+- Fixed: a job swap worth exactly the minimum gain (0.5 by default) was never made, although the option says "at
+  least". For example a Daughter of Bor's +1 Industry as an Artisan at a Food or Science focus, where Industry
+  counts half.
+- Changing a city's job strategy makes the game place all its populations again. The mod now optimizes that city
+  again right away for the new strategy, instead of leaving the populations it had already moved that turn wherever
+  the game put them until the next turn.
+
 ## 1.1.1 — 2026-10-04
 
 - Job changes are no longer capped at 10 per city per turn, so a big city is sorted out in the same turn (for

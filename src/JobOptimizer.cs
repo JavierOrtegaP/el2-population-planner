@@ -142,7 +142,8 @@ namespace PopulationPlanner
                 // Ties go to keeping head-counts, then to fewer orders.
                 int rank = partner.HasValue ? (twoOrders ? 2 : 0) : 1;
                 bool better = best == null || gain > best.Gain + 1e-4f || (Math.Abs(gain - best.Gain) <= 1e-4f && rank < Rank(best));
-                if (gain > minGain + 1e-4f && better)
+                // At least the minimum gain: e.g. a +1 Industry job bonus at a Food focus (Industry x0.5) is worth exactly 0.5.
+                if (gain >= minGain - 1e-4f && better)
                 {
                     best = new JobSwap
                     {

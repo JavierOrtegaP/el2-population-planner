@@ -39,6 +39,7 @@ namespace PopulationPlanner.Tests
             Run(nameof(SimulatedGameFollowsTheRule), SimulatedGameFollowsTheRule);
             Run(nameof(JobFormulasMatchTheGameData), JobFormulasMatchTheGameData);
             Run(nameof(JobBonusPullsPopIntoItsJob), JobBonusPullsPopIntoItsJob);
+            Run(nameof(GainOfExactlyTheMinimumCounts), GainOfExactlyTheMinimumCounts);
             Run(nameof(MixingBonusSpreadsXavius), MixingBonusSpreadsXavius);
             Run(nameof(MixingMalusKeepsSolluskTogether), MixingMalusKeepsSolluskTogether);
             Run(nameof(StrategyWeightsDecideTradeOffs), StrategyWeightsDecideTradeOffs);
@@ -465,6 +466,22 @@ namespace PopulationPlanner.Tests
             Expect(swap != null && swap.Pop == 11 && swap.To == 2 && swap.Partner == 22 && !swap.TwoOrders,
                 $"DoB moves to job 02, the game sends out the weakest artisan (got {Show(swap)})");
             Expect(swap != null && Math.Abs(swap.Delta[Yield.Industry] - 1f) < 0.01f, "+1 Industry");
+        }
+
+        // Food focus (the game's weights: Food 2, Industry 0.5, Dust 1, the rest 0.5): a Daughter of Bor's +1 Industry
+        // as an artisan is worth exactly 0.5, the default minimum gain, which "at least" includes.
+        private static void GainOfExactlyTheMinimumCounts()
+        {
+            GameState state = JobWorld();
+            CityState city = JobCity(state,
+                Job(3, "Job03", 2, Pop(31, "DaughterOfBor", 3f), Pop(32, "Plain", 3f)),
+                Job(2, "Job02", 2, Pop(21, "Plain", 3f), Pop(22, "Plain", 2f)));
+            city.Jobs.Weights = new[] { 2f, 0.5f, 1f, 0.5f, 0.5f, 0.5f };
+            JobSwap swap = JobOptimizer.BestSwap(state, city, 0.5f, null);
+            Expect(swap != null && swap.Pop == 31 && swap.To == 2 && swap.Partner == 22,
+                $"the scribe DoB moves to the artisans at Food focus (got {Show(swap)})");
+            Expect(swap != null && Math.Abs(swap.Gain - 0.5f) < 0.01f, $"worth exactly 0.5 (got {Show(swap)})");
+            Expect(JobOptimizer.BestSwap(state, city, 0.6f, null) == null, "a higher minimum gain leaves it");
         }
 
         // Xavius: +4 Approval each when its job has another population type. Three Xavius farmers next to three

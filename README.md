@@ -50,7 +50,8 @@ revisits populations already at work. The mod swaps populations between jobs to 
 job strategy (Balanced / Food / Industry / Science): how many work each job stays as the strategy set it; only who
 works where changes. One swap at a time per city, and each population at most once a turn, so a city settles within
 the turn (you can also cap the changes per city per turn). Severed Claws (and any population that adds job slots)
-are never moved.
+are never moved. Changing a city's job strategy makes the game place all its populations again; the mod then
+optimizes them for the new strategy in the same turn.
 
 ### Minimum approval (optional)
 
