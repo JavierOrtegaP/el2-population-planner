@@ -2,6 +2,10 @@
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/JavierOrtegaP)
 
+*If you like my work and Population Planner saves you some micromanagement, you can
+[sponsor me on GitHub](https://github.com/sponsors/JavierOrtegaP). It's completely optional, but always appreciated,
+and it keeps me making more mods. Thank you! ❤️*
+
 A [BepInEx](https://github.com/BepInEx/BepInEx) mod that takes the population micromanagement off your hands:
 
 - **Growth** — picks every city's next population so you unlock population bonuses one after another, without
