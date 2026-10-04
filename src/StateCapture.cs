@@ -26,6 +26,10 @@ namespace PopulationPlanner
         // Whether a population's last bonus only applies where it is present: static game data, so cached by name.
         private static readonly Dictionary<string, bool> PresenceCache = new Dictionary<string, bool>(StringComparer.Ordinal);
         private static readonly Dictionary<string, float> ApprovalLevelCache = new Dictionary<string, float>(StringComparer.Ordinal);
+        private static IReadOnlyList<PopInfo> catalog;
+        private static string catalogGame;
+        private static int catalogTurn;
+        private static bool catalogFailed;
         private static long nextCaptureMs;
         private static long lastSignature;
         private static int version;
@@ -195,6 +199,7 @@ namespace PopulationPlanner
             }
 
             ReadApprovalLevels(state);
+            state.Catalog = Catalog(state.GameId, state.Turn, empire);
             HashSet<string> jobTags = JobCapture.ReadTypes(state, definitions.Values);
             for (int i = 0; i < settlements.Count; i++)
             {
@@ -246,6 +251,70 @@ namespace PopulationPlanner
             {
                 state.ApprovalLevels[level.Key] = level.Value;
             }
+        }
+
+        // Every population of the game with its bonus thresholds for this empire and what each bonus gives, in the
+        // words of the game's population screen: the same call the game makes for it, here for populations the empire
+        // has none of too. Once per turn; an error only leaves the list empty for the rest of the game.
+        private static IReadOnlyList<PopInfo> Catalog(string gameId, int turn, MajorEmpire empire)
+        {
+            if (catalog != null && catalogGame == gameId && (catalogTurn == turn || catalogFailed))
+            {
+                return catalog;
+            }
+            if (catalogGame != gameId)
+            {
+                catalogFailed = false;
+            }
+            catalogGame = gameId;
+            catalogTurn = turn;
+            var list = new List<PopInfo>();
+            var withoutText = new List<string>();
+            try
+            {
+                PopulationDefinition[] all = Databases.GetDatabase<PopulationDefinition>()?.GetValues();
+                for (int i = 0; all != null && i < all.Length; i++)
+                {
+                    PopulationDefinition definition = all[i];
+                    int tierCount = ReferenceEquals(definition, null) ? 0 : definition.PopulationCollection?.Length ?? 0;
+                    if (tierCount == 0 || definition.Hidden)
+                    {
+                        continue;
+                    }
+                    var info = new PopInfo
+                    {
+                        Name = definition.Name.ToString(),
+                        ActionOnly = definition.IsCreatedByActionOnly,
+                        PresenceMatters = PresenceMatters(definition),
+                        Thresholds = new int[tierCount],
+                        TierTexts = new string[tierCount],
+                    };
+                    for (int tier = 0; tier < tierCount; tier++)
+                    {
+                        info.Thresholds[tier] = (int)empire.DepartmentOfTheInterior.GetPopulationCollectionThreshold(definition, tier + 1);
+                        info.TierTexts[tier] = Sandbox.SimulationEvaluator.GetSimulationEventEffectTranslation(definition.PopulationCollection[tier].SimulationEventEffects, empire) ?? string.Empty;
+                        if (info.TierTexts[tier].Trim().Length == 0)
+                        {
+                            withoutText.Add($"{info.Name} bonus {tier + 1}");
+                        }
+                    }
+                    list.Add(info);
+                }
+            }
+            catch (Exception e)
+            {
+                catalogFailed = true;
+                catalog = new PopInfo[0];
+                Plugin.Log.LogWarning($"Could not read the populations' bonuses; the Populations tab stays empty this game. {e}");
+                return catalog;
+            }
+            if (catalog == null || catalog.Count != list.Count)
+            {
+                Plugin.Log.LogInfo($"Bonuses read for {list.Count} populations"
+                    + (withoutText.Count > 0 ? $"; the game has no text for {string.Join(", ", withoutText.ToArray())}." : "."));
+            }
+            catalog = list;
+            return catalog;
         }
 
         private static bool TryGetDefinition(StaticString name, out PopulationDefinition definition)

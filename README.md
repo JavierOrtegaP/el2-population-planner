@@ -8,7 +8,8 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that takes the population mi
 - **Approval** *(optional)* — keeps cities at least Content, Happy or Jubilant by growing and placing populations for
   approval when a city slips.
 
-Everything is shown and adjustable in an in-game window (**F7**).
+Everything is shown and adjustable in an in-game window (**F7**), or on its own page of
+[Mod Menu](https://github.com/JavierOrtegaP/el2-mod-menu) if you use it.
 
 ## What it does
 
@@ -95,7 +96,13 @@ mod only gives the game its own orders, the same as clicking in the UI, so saves
   they apply in, with a *1 per city* switch.
 - **Cities** — each city's approval, current pick, what the mod picks and why; its target, its minimum approval,
   Auto/Off, Jobs auto/off, the last job change, and Reset jobs.
+- **Populations** — every population in the game, with what each of its bonuses gives in the game's own words, and
+  how far you are from each. Unlike the game's screens, it includes populations you have none of yet.
 - **Settings** — the options below, window size and opacity.
+
+With [Mod Menu](https://github.com/JavierOrtegaP/el2-mod-menu) installed (optional), its key opens the menu instead,
+and this window is the menu's **Population** page, with a status line under *All mods*; the menu's size and opacity
+then apply.
 
 ## Options
 
@@ -113,7 +120,7 @@ per-city choices are saved per game in `BepInEx/config/PopulationPlanner/<game i
 | Jobs / MinimumGain | 0.5 | Smallest gain worth a swap (yields weighted by the city's job strategy). |
 | Approval / MinimumLevel | Off | Off, Content, Happy or Jubilant. |
 | Approval / Buffer | 3 | Act this many points above the level. |
-| Window / ToggleKey | F7 | Unity Input System key name. F7 is unused by the game. |
+| Window / ToggleKey | F7 | Unity Input System key name. F7 is unused by the game. Not used with Mod Menu. |
 | Window / Size | 0 | 0 = follows the screen resolution (2x at 4K); else a multiplier. |
 | Window / Opacity | 1 | Window background opacity. |
 | Debug / LogDecisions | true | Log every pick and job change to `BepInEx/LogOutput.log`. |
@@ -123,7 +130,8 @@ per-city choices are saved per game in `BepInEx/config/PopulationPlanner/<game i
 - Made for ENDLESS Legend 2 **1.0** (Steam build 25623753). It reads the game's data at runtime, so balance changes
   are followed; if an update breaks one of its hooks, that part switches itself off and the log says so.
 - Tested in single player. Multiplayer is untested.
-- Works alongside [District Planner](https://github.com/AndKenneth/el2-district-planner).
+- Works alongside [District Planner](https://github.com/AndKenneth/el2-district-planner) and
+  [Auto Foundations](https://github.com/JavierOrtegaP/el2-auto-foundations).
 
 ## How it works
 

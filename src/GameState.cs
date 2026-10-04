@@ -25,6 +25,8 @@ namespace PopulationPlanner
         public readonly HashSet<string> FixedJobTypes = new HashSet<string>(StringComparer.Ordinal);
         // City approval needed for each level (game definition name -> minimum), e.g. SettlementApproval_Neutral -> 25.
         public readonly Dictionary<string, float> ApprovalLevels = new Dictionary<string, float>(StringComparer.Ordinal);
+        // Every population of the game with what its bonuses give, including ones the empire has none of.
+        public IReadOnlyList<PopInfo> Catalog = new PopInfo[0];
 
         public CityState FindCity(ulong guid)
         {
@@ -132,6 +134,18 @@ namespace PopulationPlanner
         // Populations still to grow before the last bonus unlocks. The game checks one level per population added,
         // so a type that is already over the threshold still needs one growth per missing level.
         public int Need => Done ? 0 : Math.Max(MaxThreshold - Count, MaxLevel - Level);
+    }
+
+    // A population as the game describes it: the window's reference, whether the empire has any or not.
+    internal sealed class PopInfo
+    {
+        public string Name = string.Empty;
+        public bool ActionOnly;
+        public bool PresenceMatters;
+        // Population needed for each bonus, for this empire (faction reductions included).
+        public int[] Thresholds = new int[0];
+        // What each bonus gives, in the game's words (its markup still in).
+        public string[] TierTexts = new string[0];
     }
 
     // The yields the game's job scoring adds up (its FimsInfo), in this order everywhere.

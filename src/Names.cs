@@ -14,6 +14,12 @@ namespace PopulationPlanner
     {
         private static readonly Dictionary<string, string> PopCache = new Dictionary<string, string>(StringComparer.Ordinal);
         private static readonly Regex Markup = new Regex("<[^>]*>", RegexOptions.Compiled);
+        private static readonly Dictionary<string, string> IconWords = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Regex IconAndWord = new Regex(@"^\[([A-Za-z][A-Za-z0-9_]*)\]\s*(\S.*)$", RegexOptions.Compiled);
+        private static readonly string[] IconWordKeys =
+        {
+            "%FoodProduced", "%IndustryProduced", "%MoneyProduced", "%ScienceProduced", "%InfluenceProduced", "%ApprovalProduced", "%Population",
+        };
 
         public static string Pop(string name)
         {
@@ -93,7 +99,62 @@ namespace PopulationPlanner
             return city.Name;
         }
 
-        public static void ClearCache() => PopCache.Clear();
+        // The game's word for an icon of its text, in its language: FoodColored -> "Food", PopulationCategory_02 ->
+        // "Artisans". Null when the game has none (BonusText then falls back to English).
+        public static string IconWord(string icon)
+        {
+            if (icon.StartsWith("PopulationCategory_", StringComparison.Ordinal))
+            {
+                string job = Job(icon);
+                return job.StartsWith("Job ", StringComparison.Ordinal) ? null : job;
+            }
+            if (IconWords.Count == 0)
+            {
+                ReadIconWords();
+            }
+            string core = BonusText.WithoutColored(icon);
+            return IconWords.TryGetValue(core, out string word) ? word : null;
+        }
+
+        // A population's name as written in the game data, made readable: "Population_Minor_DaughterOfBor" ->
+        // "Daughter Of Bor". Tells apart populations the game gives the same name.
+        public static string Internal(string name) => Fallback(name);
+
+        public static void ClearCache()
+        {
+            PopCache.Clear();
+            IconWords.Clear();
+        }
+
+        // The game names each yield with its icon first ("%FoodProduced" = "[FoodColored] Food"): that gives the
+        // icon's word in the game's language.
+        private static void ReadIconWords()
+        {
+            try
+            {
+                var localization = UIServiceAccessManager.LocalizationService;
+                if (localization == null)
+                {
+                    return;
+                }
+                foreach (string key in IconWordKeys)
+                {
+                    Match match = IconAndWord.Match(Clean(localization.Localize(key)) ?? string.Empty);
+                    if (match.Success)
+                    {
+                        IconWords[BonusText.WithoutColored(match.Groups[1].Value)] = match.Groups[2].Value.Trim();
+                    }
+                }
+                if (IconWords.TryGetValue("Dust", out string dust) && !IconWords.ContainsKey("Money"))
+                {
+                    IconWords["Money"] = dust;
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogDebug($"No icon words: {e.Message}");
+            }
+        }
 
         private static string Clean(string text) => string.IsNullOrEmpty(text) ? text : Markup.Replace(text, string.Empty).Trim();
 

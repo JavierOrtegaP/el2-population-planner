@@ -17,6 +17,7 @@
     <Compile Include="..\src\GameSettings.cs" />
     <Compile Include="..\src\Planner.cs" />
     <Compile Include="..\src\JobOptimizer.cs" />
+    <Compile Include="..\src\BonusText.cs" />
   </ItemGroup>
 
 </Project>

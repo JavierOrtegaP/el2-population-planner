@@ -128,6 +128,13 @@ namespace PopulationPlanner
             }
         }
 
+        // Mod Menu (a separate, optional mod) finds these by name: the window's content becomes one of its pages.
+        public string ModMenuTitle => "Population";
+
+        public string ModMenuStatus => patched ? window?.StatusLine() : null;
+
+        public void ModMenuDraw() => window?.DrawEmbedded();
+
         private void OnApplicationQuit() => controller?.SaveNow();
 
         private void OnDestroy()

@@ -16,7 +16,11 @@ namespace PopulationPlanner
         // Read by InputBlockPatch, on the main thread.
         internal static bool MouseOver;
 
-        private static readonly string[] Tabs = { "Bonuses", "Cities", "Settings" };
+        private static readonly string[] Tabs = { "Bonuses", "Cities", "Populations", "Settings" };
+
+        // Mod Menu, a separate optional mod: when installed it takes the key and shows this window's content as one of
+        // its pages (Plugin.ModMenuDraw). Without it, nothing changes.
+        private const string MenuGuid = "el2.modmenu";
 
         private readonly Controller controller;
         // Clicks only queue their effect; it runs in the next Update. Changing what the window draws in the middle of
@@ -32,6 +36,15 @@ namespace PopulationPlanner
         private Key key = Key.F7;
         private float hintUntil = -1f;
         private bool hintShown;
+        private bool? menuInstalled;
+        // Populations tab: whose bonuses show (all but the clicked ones, or only the clicked ones).
+        private readonly HashSet<string> toggledPops = new HashSet<string>(StringComparer.Ordinal);
+        private bool allPopsOpen;
+        // The game's bonus text made plain, by text: the same text comes back every turn.
+        private readonly Dictionary<string, List<string>> bonusLines = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        private GameState popRowsState;
+        private List<PopRow> ownedRows = new List<PopRow>();
+        private List<PopRow> otherRows = new List<PopRow>();
 
         private bool stylesReady;
         // Unity's default window and box backgrounds are see-through; these are solid, at the configured opacity.
@@ -47,6 +60,7 @@ namespace PopulationPlanner
         private GUIStyle headingStyle;
         private GUIStyle boxStyle;
         private GUIStyle hintStyle;
+        private GUIStyle nameButtonStyle;
 
         public PlannerWindow(Controller controller)
         {
@@ -57,6 +71,23 @@ namespace PopulationPlanner
 
         // Laid out for 1080p: automatic size grows with the screen height, in quarter steps.
         private static float Scale => AutoScale ? Mathf.Max(1f, Mathf.Round(Screen.height / 1080f * 4f) / 4f) : Mathf.Clamp(Plugin.UiScale.Value, 0.5f, 4f);
+
+        // Looked up once a game runs: BepInEx may load the menu after this mod.
+        private bool MenuInstalled
+        {
+            get
+            {
+                if (menuInstalled == null && controller.InGame)
+                {
+                    menuInstalled = BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey(MenuGuid);
+                    if (menuInstalled == true)
+                    {
+                        Plugin.Log.LogInfo("Mod Menu found: the planner is its Population page, opened with the menu's key.");
+                    }
+                }
+                return menuInstalled == true;
+            }
+        }
 
         public void Update()
         {
@@ -78,10 +109,12 @@ namespace PopulationPlanner
             }
             ReadKey();
             Keyboard keyboard = Keyboard.current;
-            if (keyboard != null && key != Key.None && keyboard[key].wasPressedThisFrame)
+            bool menu = MenuInstalled;
+            if (!menu && keyboard != null && key != Key.None && keyboard[key].wasPressedThisFrame)
             {
                 visible = !visible;
             }
+            visible = visible && !menu;
             if (controller.InGame && controller.IsNewGame && !hintShown)
             {
                 hintShown = true;
@@ -106,7 +139,8 @@ namespace PopulationPlanner
             if (!visible && Time.unscaledTime < hintUntil)
             {
                 var hint = new Rect((screenWidth - 520f) / 2f, 70f, 520f, 46f);
-                GUI.Box(hint, $"Population Planner is choosing your cities' next population.\nPress {key} to pick which bonus to aim for.", hintStyle);
+                string open = MenuInstalled ? "Open Population in Mod Menu" : $"Press {key}";
+                GUI.Box(hint, $"Population Planner is choosing your cities' next population.\n{open} to pick which bonus to aim for.", hintStyle);
             }
             if (visible)
             {
@@ -129,13 +163,52 @@ namespace PopulationPlanner
             PlanResult plan = controller.Plan;
             GUILayout.Space(2f);
             DrawTopBar(state, plan);
+            DrawTabBar();
+            scroll = GUILayout.BeginScrollView(scroll, GUILayout.ExpandHeight(true));
+            DrawTab(state, plan);
+            GUILayout.EndScrollView();
+            GUI.DragWindow(new Rect(0f, 0f, 10000f, 22f));
+        }
+
+        // The same content as Mod Menu's Population page, drawn inside the menu's window and scroll view.
+        public void DrawEmbedded()
+        {
+            if (!controller.InGame)
+            {
+                GUILayout.Label("Load a game to see the plan.");
+                return;
+            }
+            EnsureStyles();
+            RefreshBackgrounds();
+            GameState state = controller.State;
+            PlanResult plan = controller.Plan;
+            DrawTopBar(state, plan);
+            DrawTabBar();
+            DrawTab(state, plan);
+        }
+
+        // One line for Mod Menu's All mods list: what the window's top bar says.
+        public string StatusLine()
+        {
+            if (Guard.AnyFailed)
+            {
+                return "Partly off after an error (see BepInEx/LogOutput.log)";
+            }
+            return controller.InGame ? Status(controller.State, controller.Plan) : (Plugin.Automation.Value ? "On, waiting for a game" : "Off");
+        }
+
+        private void DrawTabBar()
+        {
             int selectedTab = GUILayout.Toolbar(tab, Tabs);
             if (selectedTab != tab)
             {
                 Defer(() => tab = selectedTab);
             }
             GUILayout.Space(4f);
-            scroll = GUILayout.BeginScrollView(scroll, GUILayout.ExpandHeight(true));
+        }
+
+        private void DrawTab(GameState state, PlanResult plan)
+        {
             switch (tab)
             {
                 case 0:
@@ -144,12 +217,13 @@ namespace PopulationPlanner
                 case 1:
                     DrawCities(state, plan);
                     break;
+                case 2:
+                    DrawPopulations(state);
+                    break;
                 default:
                     DrawSettings();
                     break;
             }
-            GUILayout.EndScrollView();
-            GUI.DragWindow(new Rect(0f, 0f, 10000f, 22f));
         }
 
         private void DrawTopBar(GameState state, PlanResult plan)
@@ -209,7 +283,8 @@ namespace PopulationPlanner
         {
             GameSettings settings = controller.Settings;
             GUILayout.Label("Cities grow the first population below until its last bonus unlocks (usually at 30), then the next one. "
-                + "★ = aim for it next. Once a bonus is unlocked, every city gets one of that population so the bonus applies there too.", textStyle);
+                + "★ = aim for it next. Once a bonus is unlocked, every city gets one of that population so the bonus applies there too. "
+                + "The Populations tab shows what each bonus gives.", textStyle);
             GUILayout.Space(6f);
 
             GUILayout.BeginHorizontal();
@@ -562,6 +637,165 @@ namespace PopulationPlanner
             }
         }
 
+        // ---- Populations ----
+
+        private sealed class PopRow
+        {
+            public PopInfo Info;
+            public string Name;
+            public int Count;
+            public int Level;
+            public int[] Thresholds;
+            public bool CanGrow;
+        }
+
+        private void DrawPopulations(GameState state)
+        {
+            GUILayout.Label("Every population in the game and what each of its bonuses gives, in the game's own words, "
+                + "including populations you have none of. Click a name to show or hide its bonuses.", textStyle);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Show all", GUILayout.Width(100f)))
+            {
+                Defer(() =>
+                {
+                    allPopsOpen = true;
+                    toggledPops.Clear();
+                });
+            }
+            if (GUILayout.Button("Hide all", GUILayout.Width(100f)))
+            {
+                Defer(() =>
+                {
+                    allPopsOpen = false;
+                    toggledPops.Clear();
+                });
+            }
+            GUILayout.EndHorizontal();
+            if (state.Catalog.Count == 0)
+            {
+                GUILayout.Label("The game's list of populations isn't available (see BepInEx/LogOutput.log).", mutedStyle);
+                return;
+            }
+            // Built once per captured state, which only changes in Update: every IMGUI pass of a frame sees the same rows.
+            if (!ReferenceEquals(state, popRowsState))
+            {
+                List<PopRow> rows = PopRows(state);
+                ownedRows = rows.Where(r => r.Count > 0 || r.Level > 0).ToList();
+                otherRows = rows.Where(r => r.Count == 0 && r.Level == 0).ToList();
+                popRowsState = state;
+            }
+            DrawPopSection("In your empire", ownedRows);
+            DrawPopSection("Not in your empire", otherRows);
+        }
+
+        private static List<PopRow> PopRows(GameState state)
+        {
+            var rows = new List<PopRow>(state.Catalog.Count);
+            foreach (PopInfo info in state.Catalog)
+            {
+                state.Types.TryGetValue(info.Name, out PopType type);
+                rows.Add(new PopRow
+                {
+                    Info = info,
+                    Name = Names.Pop(info.Name),
+                    Count = type?.Count ?? 0,
+                    Level = type?.Level ?? 0,
+                    // The empire's own thresholds are read every capture; the list's once per turn.
+                    Thresholds = type != null && type.Thresholds.Length == info.Thresholds.Length ? type.Thresholds : info.Thresholds,
+                    CanGrow = type != null && type.AvailableToEmpire,
+                });
+            }
+            // Populations the game gives the same name (variants of a faction's own) get their data name added.
+            foreach (IGrouping<string, PopRow> same in rows.GroupBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase).Where(g => g.Count() > 1))
+            {
+                foreach (PopRow row in same)
+                {
+                    row.Name += $" ({Names.Internal(row.Info.Name)})";
+                }
+            }
+            rows.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase));
+            return rows;
+        }
+
+        private void DrawPopSection(string title, List<PopRow> rows)
+        {
+            if (rows.Count == 0)
+            {
+                return;
+            }
+            GUILayout.Space(8f);
+            GUILayout.Label(title, headingStyle);
+            foreach (PopRow row in rows)
+            {
+                DrawPopRow(row);
+            }
+        }
+
+        private void DrawPopRow(PopRow row)
+        {
+            string pop = row.Info.Name;
+            bool open = allPopsOpen != toggledPops.Contains(pop);
+            GUILayout.BeginVertical(boxStyle);
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button((open ? "▼ " : "► ") + row.Name, nameButtonStyle, GUILayout.Width(250f)))
+            {
+                Defer(() =>
+                {
+                    if (!toggledPops.Remove(pop))
+                    {
+                        toggledPops.Add(pop);
+                    }
+                });
+            }
+            bool done = row.Thresholds.Length > 0 && row.Level >= row.Thresholds.Length;
+            GUILayout.Label(Progress(row.Count, row.Level, row.Thresholds), done ? goodStyle : textStyle, GUILayout.Width(110f));
+            string note = row.Info.ActionOnly ? "created by actions, never grown with food" : row.CanGrow ? "you can grow it" : string.Empty;
+            GUILayout.Label(note, mutedStyle, GUILayout.ExpandWidth(true));
+            GUILayout.EndHorizontal();
+            if (open)
+            {
+                for (int tier = 0; tier < row.Thresholds.Length; tier++)
+                {
+                    DrawTier(row, tier);
+                }
+            }
+            GUILayout.EndVertical();
+        }
+
+        private void DrawTier(PopRow row, int tier)
+        {
+            bool unlocked = tier < row.Level;
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(20f);
+            GUILayout.Label($"{(unlocked ? '●' : '○')} {row.Thresholds[tier]}", unlocked ? goodStyle : mutedStyle, GUILayout.Width(52f));
+            GUILayout.BeginVertical();
+            List<string> lines = BonusLines(tier < row.Info.TierTexts.Length ? row.Info.TierTexts[tier] : string.Empty);
+            if (lines.Count == 0)
+            {
+                GUILayout.Label("(the game gives no description for this bonus)", mutedStyle);
+            }
+            foreach (string line in lines)
+            {
+                GUILayout.Label(line, textStyle);
+            }
+            if (tier == row.Thresholds.Length - 1 && row.Info.PresenceMatters)
+            {
+                GUILayout.Label($"Only in cities with at least one {Names.Pop(row.Info.Name)}.", mutedStyle);
+            }
+            GUILayout.EndVertical();
+            GUILayout.EndHorizontal();
+        }
+
+        private List<string> BonusLines(string text)
+        {
+            if (!bonusLines.TryGetValue(text ?? string.Empty, out List<string> lines))
+            {
+                lines = BonusText.Lines(text, Names.IconWord);
+                bonusLines[text ?? string.Empty] = lines;
+            }
+            return lines;
+        }
+
         // ---- Settings ----
 
         private void DrawSettings()
@@ -641,6 +875,24 @@ namespace PopulationPlanner
             }
             GUILayout.EndHorizontal();
 
+            if (!MenuInstalled)
+            {
+                DrawWindowOptions();
+            }
+
+            Toggle(Plugin.LogDecisions, "Log every change to BepInEx/LogOutput.log", null);
+
+            GUILayout.Space(10f);
+            GUILayout.Label(MenuInstalled
+                ? "Shown as the Population page of Mod Menu, whose key, size and opacity apply."
+                : $"Window key: {key} (change ToggleKey in BepInEx/config/{Plugin.Guid}.cfg).", mutedStyle);
+            GUILayout.Label("Your order and city choices are saved per game in BepInEx/config/PopulationPlanner/.", mutedStyle);
+            GUILayout.Label($"Population Planner {Plugin.Version}", mutedStyle);
+        }
+
+        // Only for this mod's own window: inside Mod Menu, the menu's size and opacity apply.
+        private void DrawWindowOptions()
+        {
             GUILayout.BeginHorizontal();
             GUILayout.Label("Window size", textStyle, GUILayout.Width(340f));
             float size = Scale;
@@ -673,13 +925,6 @@ namespace PopulationPlanner
                 Defer(() => Plugin.Opacity.Value = Mathf.Min(1f, Mathf.Round((Plugin.Opacity.Value + 0.05f) * 20f) / 20f));
             }
             GUILayout.EndHorizontal();
-
-            Toggle(Plugin.LogDecisions, "Log every change to BepInEx/LogOutput.log", null);
-
-            GUILayout.Space(10f);
-            GUILayout.Label($"Window key: {key} (change ToggleKey in BepInEx/config/{Plugin.Guid}.cfg).", mutedStyle);
-            GUILayout.Label("Your order and city choices are saved per game in BepInEx/config/PopulationPlanner/.", mutedStyle);
-            GUILayout.Label($"Population Planner {Plugin.Version}", mutedStyle);
         }
 
         private void Toggle(BepInEx.Configuration.ConfigEntry<bool> entry, string label, string help)
@@ -745,18 +990,20 @@ namespace PopulationPlanner
         }
 
         // "18/30  ●●○"
-        private static string Progress(PopType type)
+        private static string Progress(PopType type) => Progress(type.Count, type.Level, type.Thresholds);
+
+        private static string Progress(int count, int level, int[] thresholds)
         {
-            if (type.MaxLevel == 0)
+            if (thresholds.Length == 0)
             {
-                return type.Count.ToString();
+                return count.ToString();
             }
-            var dots = new char[type.MaxLevel];
-            for (int i = 0; i < type.MaxLevel; i++)
+            var dots = new char[thresholds.Length];
+            for (int i = 0; i < thresholds.Length; i++)
             {
-                dots[i] = i < type.Level ? '●' : '○';
+                dots[i] = i < level ? '●' : '○';
             }
-            return $"{type.Count}/{type.MaxThreshold}  {new string(dots)}";
+            return $"{count}/{thresholds[thresholds.Length - 1]}  {new string(dots)}";
         }
 
         private bool IsMouseInside()
@@ -807,9 +1054,12 @@ namespace PopulationPlanner
             headingStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
             boxStyle = new GUIStyle(GUI.skin.box) { padding = new RectOffset(6, 6, 4, 4), margin = new RectOffset(0, 0, 2, 2), border = new RectOffset(0, 0, 0, 0) };
             hintStyle = new GUIStyle(GUI.skin.box) { alignment = TextAnchor.MiddleCenter, fontSize = 14, wordWrap = true, border = new RectOffset(0, 0, 0, 0) };
-            hintStyle.normal.textColor = Color.white;
+            // Every state: a style copied from the skin keeps its dark text for hover etc., which would turn it black.
+            SetTextColor(hintStyle, Color.white);
+            nameButtonStyle = new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold };
+            nameButtonStyle.hover.textColor = nameButtonStyle.active.textColor = new Color(0.95f, 0.85f, 0.6f);
             windowStyle = new GUIStyle(GUI.skin.window) { border = new RectOffset(0, 0, 0, 0) };
-            windowStyle.normal.textColor = windowStyle.onNormal.textColor = new Color(0.95f, 0.85f, 0.6f);
+            SetTextColor(windowStyle, new Color(0.95f, 0.85f, 0.6f));
         }
 
         private void RefreshBackgrounds()
@@ -836,6 +1086,18 @@ namespace PopulationPlanner
             texture = new Texture2D(1, 1, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };
             texture.SetPixel(0, 0, color);
             texture.Apply();
+        }
+
+        private static void SetTextColor(GUIStyle style, Color color)
+        {
+            style.normal.textColor = color;
+            style.onNormal.textColor = color;
+            style.hover.textColor = color;
+            style.onHover.textColor = color;
+            style.active.textColor = color;
+            style.onActive.textColor = color;
+            style.focused.textColor = color;
+            style.onFocused.textColor = color;
         }
 
         private static void SetBackground(GUIStyle style, Texture2D texture)

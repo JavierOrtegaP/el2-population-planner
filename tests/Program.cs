@@ -54,6 +54,7 @@ namespace PopulationPlanner.Tests
             Run(nameof(LowApprovalCityGrowsXavius), LowApprovalCityGrowsXavius);
             Run(nameof(LowApprovalCityAvoidsLastLordAsCitizen), LowApprovalCityAvoidsLastLordAsCitizen);
             Run(nameof(ApprovalTargetsFollowSettings), ApprovalTargetsFollowSettings);
+            Run(nameof(BonusTextIsPlain), BonusTextIsPlain);
             Console.WriteLine();
             Console.WriteLine(failures == 0 ? $"All {checks} checks passed." : $"{failures} of {checks} checks FAILED.");
             return failures == 0 ? 0 : 1;
@@ -708,6 +709,38 @@ namespace PopulationPlanner.Tests
             settings.GetOrAddCity(7).MinApproval = "Off";
             Expect(float.IsNaN(ApprovalRule.Target(state, settings, city, "Content", 3f)), "city override Off");
             Expect(ApprovalRule.Minimum(state, "Jubilant") == 85f, "missing data falls back to 85");
+        }
+
+        // Shapes taken from the game's English text: values wrapped in color and bold tags, yields named as
+        // "[Icon] Word", links, icons standing alone, several icons in a row.
+        private static void BonusTextIsPlain()
+        {
+            string Plain(string text, Func<string, string> localWord = null) => string.Join(" | ", BonusText.Lines(text, localWord));
+
+            ExpectText(Plain("<c=FFFFFF><b>+2</b></c> [FoodColored] <a=GameFood>Food</a> on [PopulationCategory_02] Artisans"), "+2 Food on Artisans");
+            ExpectText(Plain("+1 [DustColored] per [Dweller] Dweller"), "+1 Dust per Dweller");
+            ExpectText(Plain("+1 [FoodColored][IndustryColored][DustColored][ScienceColored][CultureColored] on [Population] Population"),
+                "+1 Food, Industry, Dust, Science, Influence on Population");
+            ExpectText(Plain("+2 [FoodColored] on Tile producing [FoodColored] Food"), "+2 Food on Tile producing Food");
+            ExpectText(Plain("+5 [PublicOrderColored]"), "+5 Approval");
+            ExpectText(Plain("[PublicOrderColored] Empire Approval +10%"), "Empire Approval +10%");
+            ExpectText(Plain("Unlocks <b>Sollusk Imperatium</b>\n+3 [CultureColored] Influence"), "Unlocks Sollusk Imperatium | +3 Influence");
+            ExpectText(Plain("every 3 [Turn]\r\n[Turn] Turns left"), "every 3 turns | Turns left");
+            ExpectText(Plain("+1 [Strategic01Colored] Titanium"), "+1 Titanium");
+            ExpectText(Plain("[DoubleArrow] Adds +1 [ScienceColored] Science\n[TBD]\n"), "Adds +1 Science");
+            ExpectText(Plain("+2​ [ScienceColored] Science ( [Population] )"), "+2 Science (Population)");
+            ExpectText(Plain("[PopulationCategory_03]"), "Scribes");
+            ExpectText(Plain(null), string.Empty);
+
+            // In another language, the game's own words for the icons (the window reads them from the game).
+            Func<string, string> french = icon => icon == "FoodColored" ? "Nourriture" : icon == "PopulationCategory_02" ? "Artisans" : null;
+            ExpectText(Plain("+2 [FoodColored] Nourriture sur [PopulationCategory_02] Artisan", french), "+2 Nourriture sur Artisan");
+            ExpectText(Plain("+2 [FoodColored]", french), "+2 Nourriture");
+        }
+
+        private static void ExpectText(string actual, string expected)
+        {
+            Expect(actual == expected, $"expected \"{expected}\", got \"{actual}\"");
         }
 
         private static GameState JobWorld()
