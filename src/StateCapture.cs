@@ -289,10 +289,24 @@ namespace PopulationPlanner
                         Thresholds = new int[tierCount],
                         TierTexts = new string[tierCount],
                     };
+                    int empty = 0;
                     for (int tier = 0; tier < tierCount; tier++)
                     {
                         info.Thresholds[tier] = (int)empire.DepartmentOfTheInterior.GetPopulationCollectionThreshold(definition, tier + 1);
                         info.TierTexts[tier] = Sandbox.SimulationEvaluator.GetSimulationEventEffectTranslation(definition.PopulationCollection[tier].SimulationEventEffects, empire) ?? string.Empty;
+                        if (info.TierTexts[tier].Trim().Length == 0)
+                        {
+                            empty++;
+                        }
+                    }
+                    if (empty == tierCount)
+                    {
+                        // Nothing to show (e.g. Mangrove of Harmony's Elder variant): left out of the Populations tab.
+                        withoutText.Add($"{info.Name} (left out)");
+                        continue;
+                    }
+                    for (int tier = 0; tier < tierCount; tier++)
+                    {
                         if (info.TierTexts[tier].Trim().Length == 0)
                         {
                             withoutText.Add($"{info.Name} bonus {tier + 1}");

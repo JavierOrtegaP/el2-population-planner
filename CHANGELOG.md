@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.1.3 — 2026-10-04
+
+- When no job swap can put a population in the job that gives it a bonus of its own (e.g. a Daughter of Bor
+  outside the Artisans), the Cities tab now says why: that job is full and the game would send out the same type to
+  make room, it was already moved this turn, or no swap gains enough. The log says it once a turn, with who works
+  where.
+- The Populations tab leaves out populations the game describes no bonus for at all (Mangrove of Harmony's Elder
+  variant).
+
 ## 1.1.2 — 2026-10-04
 
 - Fixed: a job swap worth exactly the minimum gain (0.5 by default) was never made, although the option says "at

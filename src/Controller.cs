@@ -45,6 +45,10 @@ namespace PopulationPlanner
         private readonly Dictionary<ulong, int> swapsThisTurn = new Dictionary<ulong, int>();
         private readonly HashSet<ulong> jobsHeld = new HashSet<ulong>();
         private readonly Dictionary<ulong, string> lastJobChange = new Dictionary<ulong, string>();
+        // Why populations still miss a job bonus of their own when no swap was found (shown in the Cities tab).
+        private readonly Dictionary<ulong, string> jobNotes = new Dictionary<ulong, string>();
+        // City and note already logged this turn, so each is logged once.
+        private readonly HashSet<string> loggedJobNotes = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<ulong, long> jobCheckedAt = new Dictionary<ulong, long>();
         // Approval and food when the mod first changed a city's jobs this turn, and what its changes added since: the
         // game may only update those values at the end of the turn, and the mod must not count the same gain twice.
@@ -337,6 +341,8 @@ namespace PopulationPlanner
 
         public string LastJobChange(ulong city) => lastJobChange.TryGetValue(city, out string text) ? text : null;
 
+        public string JobNote(ulong city) => jobNotes.TryGetValue(city, out string text) ? text : null;
+
         public string JobName(CityState city, ulong job)
         {
             JobCategory category = city.Jobs?.Find(job);
@@ -499,6 +505,8 @@ namespace PopulationPlanner
             jobsHeld.Clear();
             jobPlans.Clear();
             lastJobChange.Clear();
+            jobNotes.Clear();
+            loggedJobNotes.Clear();
             jobCheckedAt.Clear();
             jobTurnBase.Clear();
             jobTurnDelta.Clear();
@@ -540,10 +548,45 @@ namespace PopulationPlanner
                 jobTurnBase.Remove(city.Guid);
                 jobTurnDelta.Remove(city.Guid);
                 lastJobChange.Remove(city.Guid);
+                jobNotes.Remove(city.Guid);
                 if (Plugin.LogDecisions.Value)
                 {
                     Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: job strategy changed and the game placed its populations again; optimizing them for the new strategy.");
                 }
+            }
+        }
+
+        // No swap found: say which populations still miss a job bonus of their own, and why (Cities tab; the log once a
+        // turn per city and text, with who works where, so a placement can be checked from the log alone).
+        private void NoteMissedBonuses(CityState city)
+        {
+            List<MissedBonus> missed = JobOptimizer.MissedBonuses(State, city, frozenPops.Contains);
+            if (missed.Count == 0)
+            {
+                jobNotes.Remove(city.Guid);
+                return;
+            }
+            string note = string.Join("; ", missed.Select(MissedText).ToArray());
+            jobNotes[city.Guid] = note;
+            if (Plugin.LogDecisions.Value && loggedJobNotes.Add(city.Guid + ":" + note))
+            {
+                Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: no job swap found; {note}. Jobs: {JobOptimizer.Composition(city.Jobs, Names.Pop, Names.Job)}.");
+            }
+        }
+
+        private static string MissedText(MissedBonus missed)
+        {
+            string type = Names.Pop(missed.Type);
+            string job = Names.Job(missed.Job.Name);
+            string who = missed.Count == 1 ? $"1 {type} works outside {job}, where it gets a bonus" : $"{missed.Count} {type} work outside {job}, where they get a bonus";
+            switch (missed.Reason)
+            {
+                case MissedReason.MovedThisTurn:
+                    return $"{who} (already moved this turn: each population moves at most once a turn)";
+                case MissedReason.FullOfSameType:
+                    return $"{who} ({job} is full, and the worker the game would send out to make room is also a {type})";
+                default:
+                    return $"{who} (no swap for them gains at least the minimum within the approval and food limits)";
             }
         }
 
@@ -611,6 +654,7 @@ namespace PopulationPlanner
                 if (swap == null)
                 {
                     jobCheckedAt[city.Guid] = stamp;
+                    NoteMissedBonuses(city);
                     continue;
                 }
                 if (!jobTurnBase.ContainsKey(city.Guid))

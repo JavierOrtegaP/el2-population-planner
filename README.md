@@ -104,7 +104,8 @@ mod only gives the game its own orders, the same as clicking in the UI, so saves
   closest to their last bonus first; *Back to automatic order* clears yours. Unlocked bonuses show how many cities
   they apply in, with a *1 per city* switch.
 - **Cities** — each city's approval, current pick, what the mod picks and why; its target, its minimum approval,
-  Auto/Off, Jobs auto/off, the last job change, and Reset jobs.
+  Auto/Off, Jobs auto/off, the last job change, Reset jobs, and why a population isn't in the job that gives it a
+  bonus when no swap can put it there.
 - **Populations** — every population in the game, with what each of its bonuses gives in the game's own words, and
   how far you are from each. Unlike the game's screens, it includes populations you have none of yet.
 - **Settings** — the options below, window size and opacity.

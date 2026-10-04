@@ -619,11 +619,12 @@ namespace PopulationPlanner
             int swaps = controller.SwapsThisTurn(city.Guid);
             string prefix = controller.ApprovalFirst(city) ? "approval first: " : string.Empty;
             string limit = controller.JobLimitReached(city.Guid) ? $" (your limit of {Plugin.MaxJobChanges.Value} a turn is reached: more next turn)" : string.Empty;
+            string note = controller.JobNote(city.Guid);
             if (last != null)
             {
-                return prefix + (swaps > 1 ? $"{swaps} changes this turn, last: " : "changed: ") + last + limit;
+                return prefix + (swaps > 1 ? $"{swaps} changes this turn, last: " : "changed: ") + last + limit + (note != null ? "; still: " + note : string.Empty);
             }
-            return prefix + "no better job swap found";
+            return prefix + (note != null ? "no job swap found: " + note : "no better job swap found");
         }
 
         private static string NoteText(CityPlan plan)

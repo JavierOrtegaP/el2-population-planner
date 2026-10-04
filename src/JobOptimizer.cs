@@ -42,6 +42,28 @@ namespace PopulationPlanner
         public float CurrentFood = float.NaN;
     }
 
+    // Populations working outside the job where a bonus of their own applies (e.g. Daughter of Bor +1 Industry as an
+    // Artisan), when no swap moves them: how many of a type, that job, and why. Shown to the player.
+    internal sealed class MissedBonus
+    {
+        public string Type;
+        public JobCategory Job;
+        public int Count;
+        // Of them, moved already this turn.
+        public int Frozen;
+        public MissedReason Reason;
+    }
+
+    internal enum MissedReason
+    {
+        // Every one of them was already moved this turn: each population moves at most once a turn.
+        MovedThisTurn,
+        // The job is full, and the worker the game would send out to make room is of the same type.
+        FullOfSameType,
+        // No swap for them gains at least the minimum within the approval and food limits.
+        NoGain,
+    }
+
     internal static class JobOptimizer
     {
         private const float FoodMargin = 1.25f;
@@ -213,6 +235,113 @@ namespace PopulationPlanner
                 }
             }
             return worst;
+        }
+
+        // Populations outside the job where a plain bonus of their own applies, grouped by type and job, with the reason
+        // nothing moves them. Plain bonuses only: mixing effects depend on the co-workers, and maluses aren't bonuses.
+        public static List<MissedBonus> MissedBonuses(GameState state, CityState city, Func<ulong, bool> isFrozen)
+        {
+            var result = new List<MissedBonus>();
+            JobState jobs = city.Jobs;
+            if (jobs == null)
+            {
+                return result;
+            }
+            foreach (JobCategory from in jobs.Categories)
+            {
+                foreach (JobPop pop in from.Pops)
+                {
+                    if (state.FixedJobTypes.Contains(pop.Type) || !state.JobEffects.TryGetValue(pop.Type, out List<JobEffect> effects))
+                    {
+                        continue;
+                    }
+                    JobCategory target = BonusJob(effects, jobs, from);
+                    if (target == null)
+                    {
+                        continue;
+                    }
+                    MissedBonus entry = result.Find(m => m.Type == pop.Type && ReferenceEquals(m.Job, target));
+                    if (entry == null)
+                    {
+                        entry = new MissedBonus { Type = pop.Type, Job = target };
+                        result.Add(entry);
+                    }
+                    entry.Count++;
+                    if (isFrozen != null && isFrozen(pop.Guid))
+                    {
+                        entry.Frozen++;
+                    }
+                }
+            }
+            foreach (MissedBonus entry in result)
+            {
+                if (entry.Frozen == entry.Count)
+                {
+                    entry.Reason = MissedReason.MovedThisTurn;
+                }
+                else if (entry.Job.IsFull && entry.Job.Pops.Count > 0 && Worst(entry.Job).Type == entry.Type)
+                {
+                    entry.Reason = MissedReason.FullOfSameType;
+                }
+                else
+                {
+                    entry.Reason = MissedReason.NoGain;
+                }
+            }
+            return result;
+        }
+
+        // "Citizens 6/6 (3 Sandshaper, 2 Last Lord, 1 Gorog), Artisans 4/4 (4 Daughter of Bor)"
+        public static string Composition(JobState jobs, Func<string, string> popName, Func<string, string> jobName)
+        {
+            return string.Join(", ", jobs.Categories.Select(job =>
+            {
+                string[] counts = job.Pops.GroupBy(p => p.Type, StringComparer.Ordinal)
+                    .OrderByDescending(g => g.Count())
+                    .Select(g => $"{g.Count()} {popName(g.Key)}")
+                    .ToArray();
+                return $"{jobName(job.Name)} {job.Pops.Count}/{job.Slots}" + (counts.Length > 0 ? $" ({string.Join(", ", counts)})" : string.Empty);
+            }).ToArray());
+        }
+
+        // A job of the city, other than the current one, where one of these plain bonuses applies; null when the current
+        // job already gets one, or no job of the city would.
+        private static JobCategory BonusJob(List<JobEffect> effects, JobState jobs, JobCategory current)
+        {
+            foreach (JobEffect effect in effects)
+            {
+                if (IsPlainBonus(effect) && effect.AppliesIn(current))
+                {
+                    return null;
+                }
+            }
+            foreach (JobEffect effect in effects)
+            {
+                if (!IsPlainBonus(effect))
+                {
+                    continue;
+                }
+                foreach (JobCategory job in jobs.Categories)
+                {
+                    if (!ReferenceEquals(job, current) && job.Slots > 0 && effect.AppliesIn(job))
+                    {
+                        return job;
+                    }
+                }
+            }
+            return null;
+        }
+
+        // A population's own job bonus: positive, tied to a job, and the same whoever works next to it.
+        private static bool IsPlainBonus(JobEffect effect)
+        {
+            if (effect.Sign <= 0f || effect.RequiredTags.Length == 0 || effect.PerCoworkerDescriptor != null)
+            {
+                return false;
+            }
+            float alone = effect.Evaluate(1);
+            float mixed = effect.Evaluate(2);
+            return !float.IsNaN(alone) && alone > 0f && Math.Abs(alone - mixed) < 1e-4f;
         }
 
         // "+4 Approval, -1 Food"

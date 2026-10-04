@@ -40,6 +40,7 @@ namespace PopulationPlanner.Tests
             Run(nameof(JobFormulasMatchTheGameData), JobFormulasMatchTheGameData);
             Run(nameof(JobBonusPullsPopIntoItsJob), JobBonusPullsPopIntoItsJob);
             Run(nameof(GainOfExactlyTheMinimumCounts), GainOfExactlyTheMinimumCounts);
+            Run(nameof(MissedBonusesSayWhy), MissedBonusesSayWhy);
             Run(nameof(MixingBonusSpreadsXavius), MixingBonusSpreadsXavius);
             Run(nameof(MixingMalusKeepsSolluskTogether), MixingMalusKeepsSolluskTogether);
             Run(nameof(StrategyWeightsDecideTradeOffs), StrategyWeightsDecideTradeOffs);
@@ -482,6 +483,26 @@ namespace PopulationPlanner.Tests
                 $"the scribe DoB moves to the artisans at Food focus (got {Show(swap)})");
             Expect(swap != null && Math.Abs(swap.Gain - 0.5f) < 0.01f, $"worth exactly 0.5 (got {Show(swap)})");
             Expect(JobOptimizer.BestSwap(state, city, 0.6f, null) == null, "a higher minimum gain leaves it");
+        }
+
+        // When no swap gets a Daughter of Bor into the artisans, the player is told why: the artisans are full and the one
+        // the game would send out to make room is a Daughter of Bor too.
+        private static void MissedBonusesSayWhy()
+        {
+            GameState state = JobWorld();
+            CityState city = JobCity(state,
+                Job(2, "Job02", 2, Pop(21, "DaughterOfBor", 1f), Pop(22, "DaughterOfBor", 2f)),
+                Job(3, "Job03", 2, Pop(31, "DaughterOfBor", 5f), Pop(32, "Plain", 1f)));
+            Expect(JobOptimizer.BestSwap(state, city, 0.5f, null) == null, "no swap: the full artisans would send out a DoB");
+            List<MissedBonus> missed = JobOptimizer.MissedBonuses(state, city, null);
+            Expect(missed.Count == 1 && missed[0].Type == "DaughterOfBor" && missed[0].Count == 1 && missed[0].Job.Guid == 2
+                && missed[0].Reason == MissedReason.FullOfSameType, $"1 DoB outside job 02, which is full of DoBs (got {missed.Count})");
+            missed = JobOptimizer.MissedBonuses(state, city, guid => guid == 31);
+            Expect(missed.Count == 1 && missed[0].Reason == MissedReason.MovedThisTurn, "already moved this turn");
+            string composition = JobOptimizer.Composition(city.Jobs, t => t, j => j);
+            Expect(composition == "Job02 2/2 (2 DaughterOfBor), Job03 2/2 (1 DaughterOfBor, 1 Plain)", $"who works where: {composition}");
+            Expect(JobOptimizer.MissedBonuses(state, JobCity(JobWorld(), Job(2, "Job02", 2, Pop(21, "DaughterOfBor", 1f))), null).Count == 0,
+                "a DoB already in the artisans misses nothing");
         }
 
         // Xavius: +4 Approval each when its job has another population type. Three Xavius farmers next to three
