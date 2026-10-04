@@ -74,6 +74,12 @@ below it (plus a small buffer, 3 by default — about what one more Citizen or A
 
 Above the level, no job swap may take a city back under it.
 
+By default it only does this when it pays. Content is always kept: below it a city falls into crisis and, in the
+end, rebels. But Happy only adds +15% to the city's Food and Industry gain, and Jubilant +30% (read from the game
+data), so the mod first works out the job moves it would take to get there and compares what they cost with that
+bonus, both weighed by the city's job strategy. If the moves cost more, the city is held at the highest level that
+pays, and the Cities tab shows the numbers. Switch *Only when it pays* off to always chase the level you picked.
+
 ### You stay in charge
 
 - Picking a city's next population yourself in the city screen: the mod leaves that city alone until it grows (or
@@ -133,6 +139,7 @@ per-city choices are saved per game in `BepInEx/config/PopulationPlanner/<game i
 | Jobs / MaxChangesPerCityPerTurn | 0 | Most job changes per city per turn; 0 = no limit. |
 | Approval / MinimumLevel | Off | Off, Content, Happy or Jubilant. |
 | Approval / Buffer | 3 | Act this many points above the level. |
+| Approval / OnlyWhenItPays | true | Chase Happy and Jubilant only when their bonus beats the job moves they take (Content is always kept). |
 | Window / ToggleKey | F7 | Unity Input System key name. F7 is unused by the game. Not used with Mod Menu. |
 | Window / Size | 0 | 0 = follows the screen resolution (2x at 4K); else a multiplier. |
 | Window / Opacity | 1 | Window background opacity. |

@@ -26,6 +26,7 @@ namespace PopulationPlanner
         // Whether a population's last bonus only applies where it is present: static game data, so cached by name.
         private static readonly Dictionary<string, bool> PresenceCache = new Dictionary<string, bool>(StringComparer.Ordinal);
         private static readonly Dictionary<string, float> ApprovalLevelCache = new Dictionary<string, float>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, float[]> ApprovalBonusCache = new Dictionary<string, float[]>(StringComparer.Ordinal);
         private static IReadOnlyList<PopInfo> catalog;
         private static string catalogGame;
         private static int catalogTurn;
@@ -110,6 +111,8 @@ namespace PopulationPlanner
                     Approval = (float)settlement.ApprovalCapped.Value,
                     ApprovalNet = (float)settlement.ApprovalNet.Value,
                     ApprovalLevel = ReferenceEquals(settlement.SettlementApprovalDefinition, null) ? string.Empty : settlement.SettlementApprovalDefinition.Name.ToString(),
+                    FoodGain = (float)settlement.FoodGain.Value,
+                    IndustryGain = (float)settlement.IndustryGain.Value,
                 };
                 AddCounts(settlement.AssignedPopulations, city.Counts, definitions);
                 AddCounts(settlement.OverPopulations, city.Counts, definitions);
@@ -232,7 +235,8 @@ namespace PopulationPlanner
             }
         }
 
-        // The approval each city level starts at (game data: 25 Content, 60 Happy, 85 Jubilant at release).
+        // The approval each city level starts at (game data: 25 Content, 60 Happy, 85 Jubilant at release), and what it
+        // adds to a city's Food and Industry gain (+15% Happy, +30% Jubilant, -20% below Content).
         private static void ReadApprovalLevels(GameState state)
         {
             if (ApprovalLevelCache.Count == 0)
@@ -241,9 +245,16 @@ namespace PopulationPlanner
                 SettlementApprovalDefinition[] definitions = database?.GetValues();
                 for (int i = 0; definitions != null && i < definitions.Length; i++)
                 {
-                    if (!ReferenceEquals(definitions[i], null))
+                    if (ReferenceEquals(definitions[i], null))
                     {
-                        ApprovalLevelCache[definitions[i].Name.ToString()] = definitions[i].ApprovalRangeMin;
+                        continue;
+                    }
+                    string name = definitions[i].Name.ToString();
+                    ApprovalLevelCache[name] = definitions[i].ApprovalRangeMin;
+                    float[] bonus = ReadApprovalBonus(definitions[i]);
+                    if (bonus != null)
+                    {
+                        ApprovalBonusCache[name] = bonus;
                     }
                 }
             }
@@ -251,6 +262,50 @@ namespace PopulationPlanner
             {
                 state.ApprovalLevels[level.Key] = level.Value;
             }
+            foreach (KeyValuePair<string, float[]> bonus in ApprovalBonusCache)
+            {
+                state.ApprovalBonuses[bonus.Key] = bonus.Value;
+            }
+        }
+
+        // A level's percentages on the city's Food and Industry gain, as fractions ([food, industry]); null when its
+        // descriptors do something to those the mod can't weigh, so the level is then taken as configured.
+        private static float[] ReadApprovalBonus(SettlementApprovalDefinition definition)
+        {
+            var bonus = new float[2];
+            Amplitude.Framework.DatatableElementReference[] references = definition.DescriptorReferences;
+            for (int i = 0; references != null && i < references.Length; i++)
+            {
+                Descriptor descriptor = references[i].GetDatatableElement<Descriptor>();
+                if (ReferenceEquals(descriptor, null) || descriptor.Effects == null)
+                {
+                    continue;
+                }
+                foreach (var effect in descriptor.Effects)
+                {
+                    if (effect.PropertyEffects == null)
+                    {
+                        continue;
+                    }
+                    foreach (var propertyEffect in effect.PropertyEffects)
+                    {
+                        int field = propertyEffect == null ? -1 : propertyEffect.TargetProperty == "FoodGain" ? 0 : propertyEffect.TargetProperty == "IndustryGain" ? 1 : -1;
+                        if (field < 0)
+                        {
+                            continue;
+                        }
+                        bool onTheCity = (effect.Path.PropertyToFollow?.Length ?? 0) == 0 && (effect.Path.Validations?.Length ?? 0) == 0;
+                        if (!onTheCity || propertyEffect.ToTargetOperation != Amplitude.Framework.Simulation.Operation.Percent
+                            || (propertyEffect.RpnOperationStack?.Length ?? 0) > 0 || propertyEffect.ConstantStack == null || propertyEffect.ConstantStack.Length != 1)
+                        {
+                            Plugin.Log.LogDebug($"Approval level {definition.Name}: an effect on {propertyEffect.TargetProperty} the mod can't weigh.");
+                            return null;
+                        }
+                        bonus[field] += (float)propertyEffect.ConstantStack[0];
+                    }
+                }
+            }
+            return bonus;
         }
 
         // Every population of the game with its bonus thresholds for this empire and what each bonus gives, in the

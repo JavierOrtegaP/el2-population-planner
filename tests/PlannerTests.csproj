@@ -18,6 +18,7 @@
     <Compile Include="..\src\Planner.cs" />
     <Compile Include="..\src\JobOptimizer.cs" />
     <Compile Include="..\src\BonusText.cs" />
+    <Compile Include="..\src\ApprovalMath.cs" />
   </ItemGroup>
 
 </Project>

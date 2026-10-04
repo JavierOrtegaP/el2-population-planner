@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0 — 2026-10-04
+
+- Minimum approval, *only when it pays* (on by default): Content is always kept, but Happy (+15% Food and Industry)
+  and Jubilant (+30%) are now only chased when that bonus is worth more than the job moves it takes to get there,
+  both weighed by the city's job strategy. For example, moving four Daughters of Bor out of the Artisans for +12
+  approval can cost more Industry than Happy gives back. The Cities tab shows the numbers when a city is held lower.
+  The level bonuses are read from the game data.
+- When a population misses its job bonus because nobody else works in that job to trade places with (e.g. Artisans
+  emptied by earlier approval moves), the Cities tab now says so, and that Reset jobs lets the game place everyone
+  again.
+
 ## 1.1.3 — 2026-10-04
 
 - When no job swap can put a population in the job that gives it a bonus of its own (e.g. a Daughter of Bor

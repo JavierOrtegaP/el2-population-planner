@@ -474,6 +474,11 @@ namespace PopulationPlanner
             {
                 GUILayout.Label(NoteText(plan), warnStyle);
             }
+            string levelNote = off ? null : ApprovalMath.Explain(controller.LevelChoiceOf(city));
+            if (levelNote != null)
+            {
+                GUILayout.Label(char.ToUpperInvariant(levelNote[0]) + levelNote.Substring(1) + ".", mutedStyle);
+            }
             if (!off && Plugin.OptimizeJobs.Value)
             {
                 bool jobsOff = settings != null && settings.JobsOff;
@@ -821,6 +826,10 @@ namespace PopulationPlanner
                 }
             }
             GUILayout.EndHorizontal();
+            Toggle(Plugin.ApprovalOnlyWhenItPays, "Only when it pays",
+                "Content is always kept: below it a city falls into crisis and rebels. Happy (+15% Food and Industry) and Jubilant (+30%) "
+                + "are only chased when that bonus is worth more than the job moves it takes, both weighed by the city's job strategy; "
+                + "the Cities tab shows the numbers when a city stays lower.");
             GUILayout.Label("Below it (plus the buffer), a city grows the population adding the most approval there (e.g. Xavius next to other types, "
                 + "Noquensii as Scribes), its jobs put approval first (e.g. Last Lords and Hydracorns out of Citizens, populations into free Scribe slots, "
                 + "which cost no approval), and no job swap may take it back under. Cities can override the level in the Cities tab.", mutedStyle);

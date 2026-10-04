@@ -25,6 +25,9 @@ namespace PopulationPlanner
         public readonly HashSet<string> FixedJobTypes = new HashSet<string>(StringComparer.Ordinal);
         // City approval needed for each level (game definition name -> minimum), e.g. SettlementApproval_Neutral -> 25.
         public readonly Dictionary<string, float> ApprovalLevels = new Dictionary<string, float>(StringComparer.Ordinal);
+        // What each level adds to a city's Food and Industry gain, as fractions (definition name -> [food, industry]):
+        // +0.15 for Happy, +0.3 for Jubilant, -0.2 below Content at release. Missing when the game data can't be read.
+        public readonly Dictionary<string, float[]> ApprovalBonuses = new Dictionary<string, float[]>(StringComparer.Ordinal);
         // Every population of the game with what its bonuses give, including ones the empire has none of.
         public IReadOnlyList<PopInfo> Catalog = new PopInfo[0];
 
@@ -64,6 +67,9 @@ namespace PopulationPlanner
         public float Approval = 100f;
         public float ApprovalNet = 100f;
         public string ApprovalLevel = string.Empty;
+        // The city's Food and Industry gain per turn (before what it consumes), which approval levels raise by a percentage.
+        public float FoodGain;
+        public float IndustryGain;
 
         public bool IsGrowing => FoodNet > 0f && !float.IsInfinity(TurnsToGrowth);
 
@@ -185,6 +191,20 @@ namespace PopulationPlanner
         // The city's job strategy weights (Balanced, Food, Industry, Science), per yield.
         public float[] Weights = { 1f, 1f, 1f, 1f, 1f, 1f };
         public readonly List<JobCategory> Categories = new List<JobCategory>();
+
+        // A copy to try job moves on (populations and slots copied; the rest shared, as it doesn't change).
+        public JobState Clone()
+        {
+            var copy = new JobState { CanReassign = CanReassign, Weights = Weights };
+            foreach (JobCategory category in Categories)
+            {
+                var job = new JobCategory { Guid = category.Guid, Name = category.Name, Slots = category.Slots, Base = category.Base };
+                job.Tags.UnionWith(category.Tags);
+                job.Pops.AddRange(category.Pops);
+                copy.Categories.Add(job);
+            }
+            return copy;
+        }
 
         public JobCategory Find(ulong guid)
         {

@@ -40,6 +40,17 @@ namespace PopulationPlanner
         public float CurrentApproval;
         // The city's food surplus: no change may turn it negative (NaN = not checked).
         public float CurrentFood = float.NaN;
+        // Only changes that raise approval (to work out what reaching an approval level would cost).
+        public bool ApprovalMovesOnly;
+    }
+
+    // What the approval moves needed to reach a level would change in a city, all together.
+    internal sealed class ApprovalMoves
+    {
+        public int Count;
+        public bool Reached;
+        // Unweighted, per turn; approval included.
+        public float[] Delta = new float[Yield.Count];
     }
 
     // Populations working outside the job where a bonus of their own applies (e.g. Daughter of Bor +1 Industry as an
@@ -60,6 +71,9 @@ namespace PopulationPlanner
         MovedThisTurn,
         // The job is full, and the worker the game would send out to make room is of the same type.
         FullOfSameType,
+        // Nobody of another type works in that job to trade places with; filling its free slots would change how many
+        // work each job, which the mod does only for approval.
+        NoPartner,
         // No swap for them gains at least the minimum within the approval and food limits.
         NoGain,
     }
@@ -145,6 +159,10 @@ namespace PopulationPlanner
                 {
                     delta[f] = newFrom[f] + newTo[f] - current[from.Guid][f] - current[to.Guid][f];
                     gain += weights[f] * delta[f];
+                }
+                if (rules.ApprovalMovesOnly && delta[Yield.Approval] <= 1e-3f)
+                {
+                    return;
                 }
                 if (!partner.HasValue && delta[Yield.Approval] <= 1e-3f)
                 {
@@ -283,12 +301,76 @@ namespace PopulationPlanner
                 {
                     entry.Reason = MissedReason.FullOfSameType;
                 }
+                else if (entry.Job.Pops.TrueForAll(p => p.Type == entry.Type))
+                {
+                    entry.Reason = MissedReason.NoPartner;
+                }
                 else
                 {
                     entry.Reason = MissedReason.NoGain;
                 }
             }
             return result;
+        }
+
+        // The approval moves the city would make to reach the target, best first as approval-first makes them, tried on a
+        // copy of its jobs: what they change together, and whether they get there.
+        public static ApprovalMoves PlanApprovalMoves(GameState state, CityState city, float approval, float food, float target, float minGain, Func<ulong, bool> isFrozen)
+        {
+            var result = new ApprovalMoves();
+            if (city.Jobs == null)
+            {
+                return result;
+            }
+            var copy = new CityState { Guid = city.Guid, Jobs = city.Jobs.Clone() };
+            var moved = new HashSet<ulong>();
+            while (approval < target && result.Count < 100)
+            {
+                var rules = new JobRules
+                {
+                    MinGain = minGain,
+                    IsFrozen = guid => moved.Contains(guid) || (isFrozen != null && isFrozen(guid)),
+                    ApprovalFirst = true,
+                    ApprovalMovesOnly = true,
+                    CurrentApproval = approval,
+                    CurrentFood = food,
+                };
+                JobSwap swap = BestSwap(state, copy, rules);
+                if (swap == null)
+                {
+                    break;
+                }
+                Apply(copy.Jobs, swap);
+                moved.Add(swap.Pop);
+                moved.Add(swap.Partner);
+                for (int f = 0; f < Yield.Count; f++)
+                {
+                    result.Delta[f] += swap.Delta[f];
+                }
+                approval += swap.Delta[Yield.Approval];
+                food += swap.Delta[Yield.Food];
+                result.Count++;
+            }
+            result.Reached = approval >= target;
+            return result;
+        }
+
+        // Makes a swap in a copy of the jobs, as the game would: the population into its new job, and the partner (the
+        // one a full job sends out, or the second order's) into the job left.
+        public static void Apply(JobState jobs, JobSwap swap)
+        {
+            JobCategory from = jobs.Find(swap.From);
+            JobCategory to = jobs.Find(swap.To);
+            int index = from.Pops.FindIndex(p => p.Guid == swap.Pop);
+            JobPop pop = from.Pops[index];
+            from.Pops.RemoveAt(index);
+            if (!swap.IsMove)
+            {
+                int partnerIndex = to.Pops.FindIndex(p => p.Guid == swap.Partner);
+                from.Pops.Add(to.Pops[partnerIndex]);
+                to.Pops.RemoveAt(partnerIndex);
+            }
+            to.Pops.Add(pop);
         }
 
         // "Citizens 6/6 (3 Sandshaper, 2 Last Lord, 1 Gorog), Artisans 4/4 (4 Daughter of Bor)"

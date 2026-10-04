@@ -49,6 +49,9 @@ namespace PopulationPlanner
         private readonly Dictionary<ulong, string> jobNotes = new Dictionary<ulong, string>();
         // City and note already logged this turn, so each is logged once.
         private readonly HashSet<string> loggedJobNotes = new HashSet<string>(StringComparer.Ordinal);
+        // Each city's approval level choice and what it was worked out from.
+        private readonly Dictionary<ulong, ((int, int, long, int, string) Key, LevelChoice Choice)> levelChoices = new Dictionary<ulong, ((int, int, long, int, string) Key, LevelChoice Choice)>();
+        private readonly HashSet<string> loggedLevelNotes = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<ulong, long> jobCheckedAt = new Dictionary<ulong, long>();
         // Approval and food when the mod first changed a city's jobs this turn, and what its changes added since: the
         // game may only update those values at the end of the turn, and the mod must not count the same gain twice.
@@ -253,12 +256,41 @@ namespace PopulationPlanner
 
         public void ConfigChanged() => Touch(save: false);
 
-        // Approval below which the city puts approval first (minimum level + buffer); NaN = no minimum.
+        // Approval below which the city puts approval first (its level's minimum + buffer); NaN = no minimum. The level is
+        // the city's minimum, or with "only when it pays" the highest level up to it that is worth its job moves.
         public float ApprovalTarget(CityState city)
         {
-            return Settings == null || State == null
-                ? float.NaN
-                : ApprovalRule.Target(State, Settings, city, Plugin.MinimumApproval.Value, Plugin.ApprovalBuffer.Value);
+            if (Settings == null || State == null)
+            {
+                return float.NaN;
+            }
+            float minimum = ApprovalRule.Minimum(State, LevelChoiceOf(city).Level);
+            return float.IsNaN(minimum) ? float.NaN : minimum + Math.Max(0f, Plugin.ApprovalBuffer.Value);
+        }
+
+        // The level the city is held at, worked out again whenever the state, the options or the city's approval change.
+        public LevelChoice LevelChoiceOf(CityState city)
+        {
+            string wanted = Settings?.GetCity(city.Guid)?.MinApproval ?? Plugin.MinimumApproval.Value;
+            if (!Plugin.ApprovalOnlyWhenItPays.Value || State == null)
+            {
+                return new LevelChoice { Level = ApprovalRule.Normalize(wanted) };
+            }
+            float approval = ApprovalOf(city);
+            var key = (State.Version, Revision, (long)Math.Round(approval * 10f), frozenPops.Count, wanted);
+            if (levelChoices.TryGetValue(city.Guid, out var cached) && cached.Key.Equals(key))
+            {
+                return cached.Choice;
+            }
+            LevelChoice choice = ApprovalMath.Choose(State, city, wanted, Plugin.ApprovalBuffer.Value, approval, FoodOf(city),
+                Mathf.Max(0.1f, Plugin.JobMinGain.Value), frozenPops.Contains);
+            levelChoices[city.Guid] = (key, choice);
+            string explained = ApprovalMath.Explain(choice);
+            if (explained != null && Plugin.LogDecisions.Value && loggedLevelNotes.Add($"{city.Guid}:{choice.Skipped}:{choice.Level}"))
+            {
+                Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: {explained}.");
+            }
+            return choice;
         }
 
         public bool ApprovalFirst(CityState city)
@@ -396,6 +428,7 @@ namespace PopulationPlanner
             jobTurn = -1;
             strategyWeights.Clear();
             strategyCheckedVersion = -1;
+            levelChoices.Clear();
             plannedVersion = -1;
             summaryLogged = false;
             Names.ClearCache();
@@ -507,6 +540,7 @@ namespace PopulationPlanner
             lastJobChange.Clear();
             jobNotes.Clear();
             loggedJobNotes.Clear();
+            loggedLevelNotes.Clear();
             jobCheckedAt.Clear();
             jobTurnBase.Clear();
             jobTurnDelta.Clear();
@@ -585,6 +619,8 @@ namespace PopulationPlanner
                     return $"{who} (already moved this turn: each population moves at most once a turn)";
                 case MissedReason.FullOfSameType:
                     return $"{who} ({job} is full, and the worker the game would send out to make room is also a {type})";
+                case MissedReason.NoPartner:
+                    return $"{who} (nobody else works in {job} to trade places with, and the mod changes how many work each job only for approval; Reset jobs lets the game place everyone again)";
                 default:
                     return $"{who} (no swap for them gains at least the minimum within the approval and food limits)";
             }

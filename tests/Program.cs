@@ -41,6 +41,7 @@ namespace PopulationPlanner.Tests
             Run(nameof(JobBonusPullsPopIntoItsJob), JobBonusPullsPopIntoItsJob);
             Run(nameof(GainOfExactlyTheMinimumCounts), GainOfExactlyTheMinimumCounts);
             Run(nameof(MissedBonusesSayWhy), MissedBonusesSayWhy);
+            Run(nameof(ApprovalLevelOnlyWhenItPays), ApprovalLevelOnlyWhenItPays);
             Run(nameof(MixingBonusSpreadsXavius), MixingBonusSpreadsXavius);
             Run(nameof(MixingMalusKeepsSolluskTogether), MixingMalusKeepsSolluskTogether);
             Run(nameof(StrategyWeightsDecideTradeOffs), StrategyWeightsDecideTradeOffs);
@@ -501,8 +502,60 @@ namespace PopulationPlanner.Tests
             Expect(missed.Count == 1 && missed[0].Reason == MissedReason.MovedThisTurn, "already moved this turn");
             string composition = JobOptimizer.Composition(city.Jobs, t => t, j => j);
             Expect(composition == "Job02 2/2 (2 DaughterOfBor), Job03 2/2 (1 DaughterOfBor, 1 Plain)", $"who works where: {composition}");
+            CityState emptied = JobCity(JobWorld(),
+                Job(2, "Job02", 21, Pop(21, "DaughterOfBor", 1f), Pop(22, "DaughterOfBor", 2f)),
+                Job(3, "Job03", 3, Pop(31, "DaughterOfBor", 5f), Pop(32, "Plain", 1f), Pop(33, "Plain", 1f)));
+            missed = JobOptimizer.MissedBonuses(state, emptied, null);
+            Expect(missed.Count == 1 && missed[0].Reason == MissedReason.NoPartner, "artisans with free slots and only DoBs: nobody to trade places with");
             Expect(JobOptimizer.MissedBonuses(state, JobCity(JobWorld(), Job(2, "Job02", 2, Pop(21, "DaughterOfBor", 1f))), null).Count == 0,
                 "a DoB already in the artisans misses nothing");
+        }
+
+        // Happy (+15% Food and Industry) is chased only when that bonus is worth more than the job moves it takes. Five
+        // Daughter of Bor artisans and free Scribe slots: each move to the Scribes gives +3 Approval for -5 Industry,
+        // -1 Dust and +2 Science (a cost of 4 at Balanced), and 50 -> 63 takes five of them (a cost of 20).
+        private static void ApprovalLevelOnlyWhenItPays()
+        {
+            CityState City(float foodGain, float industryGain, int scribeSlots)
+            {
+                CityState city = JobCity(ApprovalWorld(),
+                    Job(2, "Job02", 5, Pop(21, "DaughterOfBor", 5f), Pop(22, "DaughterOfBor", 5f), Pop(23, "DaughterOfBor", 5f), Pop(24, "DaughterOfBor", 5f), Pop(25, "DaughterOfBor", 5f)),
+                    Job(3, "Job03", scribeSlots));
+                city.FoodGain = foodGain;
+                city.IndustryGain = industryGain;
+                return city;
+            }
+            LevelChoice Choose(CityState city, string wanted, float approval) => ApprovalMath.Choose(ApprovalWorld(), city, wanted, 3f, approval, 100f, 0.5f, null);
+
+            LevelChoice small = Choose(City(50f, 60f, 6), "Happy", 50f);
+            Expect(small.Level == "Content" && small.Skipped == "Happy", $"+16.5 from Happy is worth less than 20 of moves: holds Content (got {small.Level})");
+            Expect(small.MovesDelta != null && Math.Abs(small.MovesDelta[Yield.Industry] + 25f) < 0.01f && Math.Abs(small.MovesDelta[Yield.Approval] - 15f) < 0.01f,
+                "the five moves: -25 Industry, +15 Approval");
+            Expect(small.LevelGain != null && Math.Abs(small.LevelGain[Yield.Food] - 7.5f) < 0.01f && Math.Abs(small.LevelGain[Yield.Industry] - 9f) < 0.01f,
+                "Happy: +7.5 Food, +9 Industry");
+            Expect(ApprovalMath.Explain(small) != null && ApprovalMath.Explain(small).StartsWith("Happy isn't worth it here now", StringComparison.Ordinal), ApprovalMath.Explain(small));
+
+            Expect(Choose(City(200f, 200f, 6), "Happy", 50f).Level == "Happy", "+60 from Happy is worth 20 of moves");
+            Expect(Choose(City(50f, 60f, 6), "Happy", 64f).Level == "Happy", "already above the target: Happy is kept");
+            LevelChoice noRoom = Choose(City(200f, 200f, 0), "Happy", 50f);
+            Expect(noRoom.Level == "Content" && noRoom.MovesDelta == null && ApprovalMath.Explain(noRoom).Contains("out of reach"), "no Scribe slots: out of reach");
+            Expect(Choose(City(50f, 60f, 6), "Content", 20f).Level == "Content" && Choose(City(50f, 60f, 6), "Content", 20f).Skipped == null, "Content: nothing to weigh");
+            LevelChoice jubilant = Choose(City(200f, 200f, 6), "Jubilant", 64f);
+            Expect(jubilant.Level == "Happy" && jubilant.Skipped == "Jubilant", $"Jubilant (88) is out of reach with 5 moves; Happy is kept (got {jubilant.Level})");
+        }
+
+        private static GameState ApprovalWorld()
+        {
+            GameState state = JobWorld();
+            state.ApprovalLevels["SettlementApproval_Unhappy"] = 0f;
+            state.ApprovalLevels["SettlementApproval_Neutral"] = 25f;
+            state.ApprovalLevels["SettlementApproval_Happy"] = 60f;
+            state.ApprovalLevels["SettlementApproval_VeryHappy"] = 85f;
+            state.ApprovalBonuses["SettlementApproval_Unhappy"] = new[] { -0.2f, -0.2f };
+            state.ApprovalBonuses["SettlementApproval_Neutral"] = new[] { 0f, 0f };
+            state.ApprovalBonuses["SettlementApproval_Happy"] = new[] { 0.15f, 0.15f };
+            state.ApprovalBonuses["SettlementApproval_VeryHappy"] = new[] { 0.3f, 0.3f };
+            return state;
         }
 
         // Xavius: +4 Approval each when its job has another population type. Three Xavius farmers next to three
