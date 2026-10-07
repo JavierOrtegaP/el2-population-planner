@@ -69,6 +69,9 @@ new strategy in the same turn. Likewise, when a construction finishes during you
 changes a city's job slots or yields per population, the mod sorts out that city's jobs again right away, populations
 it already moved that turn included.
 
+Note that the game itself resets every city's job strategy to Balanced whenever your empire gains or loses a special
+ability (a game bug). The mod points it out in the Cities tab and the log, so you can pick your strategy again.
+
 ### Minimum approval (optional)
 
 Pick a level in the window: Content (25+), Happy (60+) or Jubilant (85+), globally or per city. When a city falls

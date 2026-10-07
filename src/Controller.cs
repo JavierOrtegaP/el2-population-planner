@@ -47,11 +47,12 @@ namespace PopulationPlanner
         private readonly Dictionary<ulong, string> lastJobChange = new Dictionary<ulong, string>();
         // Why populations still miss a job bonus of their own when no swap was found (shown in the Cities tab).
         private readonly Dictionary<ulong, string> jobNotes = new Dictionary<ulong, string>();
-        // City and note already logged this turn, so each is logged once.
-        private readonly HashSet<string> loggedJobNotes = new HashSet<string>(StringComparer.Ordinal);
+        // Each city's note (with who works where) and level choice last logged: logged again only when they change, not
+        // every turn.
+        private readonly Dictionary<ulong, string> loggedJobNotes = new Dictionary<ulong, string>();
         // Each city's approval level choice and what it was worked out from.
         private readonly Dictionary<ulong, ((int, int, long, int, string) Key, LevelChoice Choice)> levelChoices = new Dictionary<ulong, ((int, int, long, int, string) Key, LevelChoice Choice)>();
-        private readonly HashSet<string> loggedLevelNotes = new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<ulong, string> loggedLevelNotes = new Dictionary<ulong, string>();
         private readonly HashSet<string> loggedFailures = new HashSet<string>(StringComparer.Ordinal);
         private readonly Dictionary<ulong, long> jobCheckedAt = new Dictionary<ulong, long>();
         // Approval and food when the mod first changed a city's jobs this turn, and what its changes added since: the
@@ -59,9 +60,12 @@ namespace PopulationPlanner
         private readonly Dictionary<ulong, float[]> jobTurnBase = new Dictionary<ulong, float[]>();
         private readonly Dictionary<ulong, float[]> jobTurnDelta = new Dictionary<ulong, float[]>();
         private int jobTurn = -1;
-        // Each city's job strategy weights when last seen: a change means the game has just placed its populations again.
+        // Each city's job strategy weights when last seen: a change means the game has just placed its populations again,
+        // unless the game reset the strategy on its own (city -> turn), which places nobody; and the note shown for it.
         private readonly Dictionary<ulong, float[]> strategyWeights = new Dictionary<ulong, float[]>();
         private int strategyCheckedVersion = -1;
+        private readonly Dictionary<ulong, int> strategyResets = new Dictionary<ulong, int>();
+        private readonly Dictionary<ulong, string> strategyNotes = new Dictionary<ulong, string>();
         // Each city's jobs when last seen this turn, and the slot and yield layouts already seen this turn: when a city's
         // slots or yields per population change during the turn (a construction finished, e.g. bought out), the mod
         // sorts out its jobs again. A layout seen before this turn doesn't count twice, so this always settles.
@@ -131,6 +135,7 @@ namespace PopulationPlanner
                 }
             }
             DrainFailures();
+            DrainStrategyResets();
             ReleaseHolds();
             if (State.Turn != jobTurn)
             {
@@ -303,10 +308,25 @@ namespace PopulationPlanner
             LevelChoice choice = ApprovalMath.Choose(State, city, wanted, Plugin.ApprovalBuffer.Value, approval, FoodOf(city),
                 Mathf.Max(0.1f, Plugin.JobMinGain.Value), frozenPops.Contains);
             levelChoices[city.Guid] = (key, choice);
+            // Logged when the decision changes (the level held and why), not again every turn.
             string explained = ApprovalMath.Explain(choice);
-            if (explained != null && Plugin.LogDecisions.Value && loggedLevelNotes.Add($"{city.Guid}:{choice.Skipped}:{choice.Level}"))
+            string decision = explained == null ? null : $"{choice.Skipped}:{choice.Level}:{choice.MovesDelta == null}";
+            loggedLevelNotes.TryGetValue(city.Guid, out string logged);
+            if (decision != logged)
             {
-                Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: {explained}.");
+                if (decision == null)
+                {
+                    loggedLevelNotes.Remove(city.Guid);
+                }
+                else
+                {
+                    loggedLevelNotes[city.Guid] = decision;
+                }
+                if (Plugin.LogDecisions.Value)
+                {
+                    Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: "
+                        + (explained ?? $"job moves keep {ApprovalRule.Normalize(wanted)} again") + ".");
+                }
             }
             return choice;
         }
@@ -393,6 +413,8 @@ namespace PopulationPlanner
 
         public string JobNote(ulong city) => jobNotes.TryGetValue(city, out string text) ? text : null;
 
+        public string StrategyNote(ulong city) => strategyNotes.TryGetValue(city, out string text) ? text : null;
+
         public string JobName(CityState city, ulong job)
         {
             JobCategory category = city.Jobs?.Find(job);
@@ -413,6 +435,11 @@ namespace PopulationPlanner
                     Settings.Cities.Remove(key);
                 }
                 string path = PathFor(gameId);
+                if (Settings.Priority.Count == 0 && Settings.Skipped.Count == 0 && Settings.NoSpread.Count == 0 && Settings.Cities.Count == 0 && !File.Exists(path))
+                {
+                    // Nothing chosen (e.g. the main menu's background game): no file to leave behind.
+                    return;
+                }
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
                 string temp = path + ".tmp";
                 File.WriteAllText(temp, JsonConvert.SerializeObject(Settings, Formatting.Indented));
@@ -446,10 +473,17 @@ namespace PopulationPlanner
             jobTurn = -1;
             strategyWeights.Clear();
             strategyCheckedVersion = -1;
+            strategyResets.Clear();
+            strategyNotes.Clear();
+            while (StrategyResetPatch.Resets.TryDequeue(out _))
+            {
+            }
             layouts.Clear();
             layoutsSeen.Clear();
             layoutTurn = -1;
             layoutCheckedVersion = -1;
+            loggedJobNotes.Clear();
+            loggedLevelNotes.Clear();
             levelChoices.Clear();
             plannedVersion = -1;
             summaryLogged = false;
@@ -545,7 +579,10 @@ namespace PopulationPlanner
                 StateCapture.RequestRefresh();
                 if (Plugin.LogDecisions.Value)
                 {
-                    Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)} now grows {Names.Pop(plan.Pop)} (was {Names.Pop(city.Growing)}; {Describe(plan.Kind)}).");
+                    string why = Describe(plan.Kind) + (plan.Kind == PlanKind.Approval
+                        ? ", about " + plan.ApprovalGain.ToString("+0;-0;0", System.Globalization.CultureInfo.InvariantCulture) + " approval"
+                        : string.Empty);
+                    Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)} now grows {Names.Pop(plan.Pop)} (was {Names.Pop(city.Growing)}; {why}).");
                 }
             }
         }
@@ -561,8 +598,6 @@ namespace PopulationPlanner
             jobPlans.Clear();
             lastJobChange.Clear();
             jobNotes.Clear();
-            loggedJobNotes.Clear();
-            loggedLevelNotes.Clear();
             loggedFailures.Clear();
             jobCheckedAt.Clear();
             jobTurnBase.Clear();
@@ -572,6 +607,7 @@ namespace PopulationPlanner
         // The player changed a city's job strategy: the game has just placed all its populations again by its own rules, so
         // this turn's job moves there no longer stand. The mod starts over in that city with the new strategy's weights,
         // instead of leaving the populations it already moved this turn wherever the game put them until next turn.
+        // When the game reset the strategy on its own, nobody was placed again: only the weights the mod uses changed.
         private void NoticeStrategyChanges()
         {
             if (strategyCheckedVersion == State.Version)
@@ -599,13 +635,19 @@ namespace PopulationPlanner
                         frozenPops.Remove(pop.Guid);
                     }
                 }
+                jobCheckedAt.Remove(city.Guid);
+                jobNotes.Remove(city.Guid);
+                if (strategyResets.TryGetValue(city.Guid, out int resetTurn) && resetTurn >= State.Turn - 1)
+                {
+                    strategyResets.Remove(city.Guid);
+                    continue;
+                }
+                strategyNotes.Remove(city.Guid);
                 swapsThisTurn.Remove(city.Guid);
                 jobPlans.Remove(city.Guid);
-                jobCheckedAt.Remove(city.Guid);
                 jobTurnBase.Remove(city.Guid);
                 jobTurnDelta.Remove(city.Guid);
                 lastJobChange.Remove(city.Guid);
-                jobNotes.Remove(city.Guid);
                 if (Plugin.LogDecisions.Value)
                 {
                     Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: job strategy changed and the game placed its populations again; optimizing them for the new strategy.");
@@ -663,21 +705,28 @@ namespace PopulationPlanner
             }
         }
 
-        // No swap found: say which populations still miss a job bonus of their own, and why (Cities tab; the log once a
-        // turn per city and text, with who works where, so a placement can be checked from the log alone).
+        // No swap found: say which populations still miss a job bonus of their own, and why (Cities tab; the log when the
+        // text or who works where changes, so a placement can be checked from the log alone).
         private void NoteMissedBonuses(CityState city)
         {
             List<MissedBonus> missed = JobOptimizer.MissedBonuses(State, city, frozenPops.Contains);
             if (missed.Count == 0)
             {
                 jobNotes.Remove(city.Guid);
+                loggedJobNotes.Remove(city.Guid);
                 return;
             }
             string note = string.Join("; ", missed.Select(MissedText).ToArray());
             jobNotes[city.Guid] = note;
-            if (Plugin.LogDecisions.Value && loggedJobNotes.Add(city.Guid + ":" + note))
+            string line = $"{note}. Jobs: {JobOptimizer.Composition(city.Jobs, Names.Pop, Names.Job)}";
+            if (loggedJobNotes.TryGetValue(city.Guid, out string logged) && logged == line)
             {
-                Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: no job swap found; {note}. Jobs: {JobOptimizer.Composition(city.Jobs, Names.Pop, Names.Job)}.");
+                return;
+            }
+            loggedJobNotes[city.Guid] = line;
+            if (Plugin.LogDecisions.Value)
+            {
+                Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: no job swap found; {line}.");
             }
         }
 
@@ -875,6 +924,28 @@ namespace PopulationPlanner
                 {
                     Plugin.Log.LogWarning($"Turn {failure.Turn}: the game could not add {Names.Pop(failure.Pop)} to {CityName(failure.City)}; not picking it there before turn {until}.");
                 }
+            }
+        }
+
+        // The game reset a city's job strategy to Balanced on its own (see StrategyResetPatch): say so in the log and the
+        // Cities tab until the player picks a strategy again. Cities the mod hasn't seen yet just joined the empire, and
+        // a new city always starts at Balanced: nothing to say.
+        private void DrainStrategyResets()
+        {
+            while (StrategyResetPatch.Resets.TryDequeue(out StrategyReset reset))
+            {
+                CityState city = State.FindCity(reset.City);
+                if (city == null)
+                {
+                    continue;
+                }
+                strategyResets[reset.City] = State.Turn;
+                string from = Names.Strategy(reset.From);
+                string to = Names.Strategy(reset.To);
+                strategyNotes[reset.City] = $"The game reset this city's job strategy from {from} to {to} on turn {State.Turn} (it does that to every city when your "
+                    + "empire gains or loses a special ability): pick it again in the city screen if you want it back.";
+                Plugin.Log.LogWarning($"Turn {State.Turn}: {Names.City(city)}: the game reset its job strategy from {from} to {to} without placing its "
+                    + "populations again (a game bug: it does that to every city when your empire gains or loses a special ability); pick it again in the city screen if you want it back.");
             }
         }
 

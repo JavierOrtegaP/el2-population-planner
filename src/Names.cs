@@ -62,6 +62,9 @@ namespace PopulationPlanner
             return result;
         }
 
+        // A job strategy, e.g. PopulationStrategy_Food (Agrarian in English).
+        public static string Strategy(string name) => Pop(name);
+
         // A job (population category), e.g. PopulationCategory_02.
         public static string Job(string name)
         {
@@ -162,7 +165,7 @@ namespace PopulationPlanner
         private static string Fallback(string name)
         {
             string core = name;
-            foreach (string prefix in new[] { "Population_Minor_", "Population_" })
+            foreach (string prefix in new[] { "Population_Minor_", "Population_", "PopulationStrategy_" })
             {
                 if (core.StartsWith(prefix, StringComparison.Ordinal))
                 {

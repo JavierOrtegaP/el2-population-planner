@@ -39,15 +39,19 @@ namespace PopulationPlanner
                 {
                     continue;
                 }
-                float target = ApprovalRule.Minimum(state, level) + Math.Max(0f, buffer);
+                float minimum = ApprovalRule.Minimum(state, level);
+                float target = minimum + Math.Max(0f, buffer);
                 float[] bonus = Bonus(state, ApprovalRule.Definition(level));
-                if (approval >= target || bonus == null)
+                // A city already at the level but within the buffer stands to lose it, i.e. to fall to the level below:
+                // that is what the moves to the target are worth, not nothing.
+                float[] from = approval >= minimum ? Bonus(state, LevelAt(state, minimum - 0.01f)) : current;
+                if (approval >= target || bonus == null || from == null)
                 {
                     // Already there (the floor keeps it), or nothing to weigh with.
                     choice.Level = level;
                     return choice;
                 }
-                float[] gain = Gain(city, current, bonus);
+                float[] gain = Gain(city, current, from, bonus);
                 ApprovalMoves moves = JobOptimizer.PlanApprovalMoves(state, city, approval, food, target, minGain, isFrozen);
                 if (moves.Reached && Weighted(city, gain) > -Weighted(city, moves.Delta))
                 {
@@ -101,21 +105,21 @@ namespace PopulationPlanner
             return definition != null && state.ApprovalBonuses.TryGetValue(definition, out float[] bonus) ? bonus : null;
         }
 
-        // What going from the current level's bonus to another's adds per turn: percentages apply to the Food and
-        // Industry gain before any of them (the current one is taken back out; other percentages are left in).
-        private static float[] Gain(CityState city, float[] current, float[] bonus)
+        // What a level's bonus adds per turn over another's: percentages apply to the Food and Industry gain before any of
+        // them (the one applied now is taken back out; other percentages are left in).
+        private static float[] Gain(CityState city, float[] applied, float[] from, float[] bonus)
         {
             var gain = new float[Yield.Count];
-            gain[Yield.Food] = Added(city.FoodGain, current[0], bonus[0]);
-            gain[Yield.Industry] = Added(city.IndustryGain, current[1], bonus[1]);
+            gain[Yield.Food] = Added(city.FoodGain, applied[0], from[0], bonus[0]);
+            gain[Yield.Industry] = Added(city.IndustryGain, applied[1], from[1], bonus[1]);
             return gain;
         }
 
-        private static float Added(float total, float currentPercent, float newPercent)
+        private static float Added(float total, float appliedPercent, float fromPercent, float newPercent)
         {
-            float divisor = 1f + currentPercent;
+            float divisor = 1f + appliedPercent;
             float basis = divisor > 0.01f ? total / divisor : 0f;
-            return basis > 0f ? (newPercent - currentPercent) * basis : 0f;
+            return basis > 0f ? (newPercent - fromPercent) * basis : 0f;
         }
 
         // Weighed by the city's job strategy, approval left out (it is what the moves buy).

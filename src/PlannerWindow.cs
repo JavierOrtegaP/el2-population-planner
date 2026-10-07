@@ -474,6 +474,11 @@ namespace PopulationPlanner
             {
                 GUILayout.Label(NoteText(plan), warnStyle);
             }
+            string strategyNote = controller.StrategyNote(city.Guid);
+            if (strategyNote != null)
+            {
+                GUILayout.Label(strategyNote, warnStyle);
+            }
             string levelNote = off ? null : ApprovalMath.Explain(controller.LevelChoiceOf(city));
             if (levelNote != null)
             {

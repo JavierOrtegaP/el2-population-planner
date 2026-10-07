@@ -607,6 +607,16 @@ namespace PopulationPlanner.Tests
             Expect(Choose(City(50f, 60f, 6), "Content", 20f).Level == "Content" && Choose(City(50f, 60f, 6), "Content", 20f).Skipped == null, "Content: nothing to weigh");
             LevelChoice jubilant = Choose(City(200f, 200f, 6), "Jubilant", 64f);
             Expect(jubilant.Level == "Happy" && jubilant.Skipped == "Jubilant", $"Jubilant (88) is out of reach with 5 moves; Happy is kept (got {jubilant.Level})");
+
+            // Found in a real game: at 86 the city is Jubilant already, but under 85 + 3. What one move to 89 protects is
+            // Jubilant over Happy (+15%), not "no change from Jubilant", which had dropped the floor to Happy's.
+            LevelChoice inBuffer = Choose(City(200f, 200f, 6), "Jubilant", 86f);
+            Expect(inBuffer.Level == "Jubilant", $"Jubilant within the buffer is kept for one cheap move (got {inBuffer.Level}: {ApprovalMath.Explain(inBuffer)})");
+            LevelChoice smallInBuffer = Choose(City(10f, 10f, 6), "Jubilant", 86f);
+            Expect(smallInBuffer.Level == "Happy" && smallInBuffer.LevelGain != null && smallInBuffer.LevelGain[Yield.Industry] > 1f,
+                $"a small city weighs the move against Jubilant over Happy (+1.2 Industry), not against nothing (got {smallInBuffer.Level}: {ApprovalMath.Explain(smallInBuffer)})");
+            LevelChoice happyBuffer = Choose(City(200f, 200f, 6), "Happy", 61f);
+            Expect(happyBuffer.Level == "Happy", $"the same for Happy at 61 (got {happyBuffer.Level})");
         }
 
         private static GameState ApprovalWorld()

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.1 — 2026-10-07
+
+- Fixed: with *only when it pays*, a city already Happy or Jubilant but still inside the buffer (e.g. at 86, with
+  Jubilant at 85 and a buffer of 3) weighed that level against itself and found it worth nothing ("for no change
+  from Jubilant"). It then held its jobs only at the level below, so later job swaps could cost it the level. It now
+  weighs what's at stake: the level over the one below.
+- The game resets every city's job strategy to Balanced whenever your empire gains or loses a special ability (a
+  bug in the game: the check meant to reset only strategies that are no longer allowed resets all of them), and it
+  doesn't place anyone again. The mod now says so in the log and in the Cities tab, so you can pick the strategy
+  again. It no longer mistakes this for a strategy change of yours.
+- The log no longer repeats the same approval-level and job notes every turn: each is written when it changes. A
+  pick made for approval now says about how much approval it adds.
+- No settings file is written for a game where nothing was chosen (e.g. the main menu's background game).
+
 ## 1.3.0 — 2026-10-07
 
 - When a construction finishes during your turn (e.g. one you buy out) and changes a city's job slots or yields per

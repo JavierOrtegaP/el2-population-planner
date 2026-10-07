@@ -58,6 +58,79 @@ namespace PopulationPlanner
         }
     }
 
+    internal readonly struct StrategyReset
+    {
+        public readonly ulong City;
+        public readonly string From;
+        public readonly string To;
+
+        public StrategyReset(ulong city, string from, string to)
+        {
+            City = city;
+            From = from;
+            To = to;
+        }
+    }
+
+    // The game resets every city's job strategy to Balanced whenever the empire gains or loses a special ability (its
+    // ResetPopulationAssignementStrategyIfNeeded resets when the strategy is still allowed, the opposite of its name),
+    // without placing the populations again. Nothing tells the player: the mod does (sandbox thread).
+    [HarmonyPatch(typeof(DepartmentOfTheInterior), nameof(DepartmentOfTheInterior.ResetPopulationAssignementStrategy))]
+    internal static class StrategyResetPatch
+    {
+        internal static readonly ConcurrentQueue<StrategyReset> Resets = new ConcurrentQueue<StrategyReset>();
+
+        [HarmonyPrefix]
+        private static void Prefix(Settlement settlement, out string __state)
+        {
+            __state = null;
+            if (Guard.HasFailed(typeof(StrategyResetPatch)))
+            {
+                return;
+            }
+            try
+            {
+                __state = Strategy(settlement);
+            }
+            catch (Exception e)
+            {
+                Guard.Fail(typeof(StrategyResetPatch), e);
+            }
+        }
+
+        [HarmonyPostfix]
+        private static void Postfix(Settlement settlement, string __state)
+        {
+            if (Guard.HasFailed(typeof(StrategyResetPatch)))
+            {
+                return;
+            }
+            try
+            {
+                Sandbox sandbox = SandboxManager.Sandbox;
+                Empire empire = ReferenceEquals(settlement, null) ? null : settlement.Empire.Entity;
+                string now = Strategy(settlement);
+                if (sandbox == null || ReferenceEquals(empire, null) || empire.Index != sandbox.LocalEmpireIndex
+                    || settlement.SettlementStatus != Amplitude.Mercury.Data.Simulation.SettlementStatuses.City || __state == null || __state == now)
+                {
+                    return;
+                }
+                Resets.Enqueue(new StrategyReset(settlement.GUID, __state, now));
+                StateCapture.RequestRefresh();
+            }
+            catch (Exception e)
+            {
+                Guard.Fail(typeof(StrategyResetPatch), e);
+            }
+        }
+
+        private static string Strategy(Settlement settlement)
+        {
+            var definition = ReferenceEquals(settlement, null) ? null : settlement.PopulationAssignementStrategyDefinition;
+            return ReferenceEquals(definition, null) ? null : definition.Name.ToString();
+        }
+    }
+
     // The player picked a city's next population in the city screen (main thread).
     [HarmonyPatch(typeof(CityWindow_PopulationGroup), "NextPopDropList_SelectionChange")]
     internal static class ManualPickPatch
