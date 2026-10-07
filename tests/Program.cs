@@ -41,6 +41,8 @@ namespace PopulationPlanner.Tests
             Run(nameof(JobBonusPullsPopIntoItsJob), JobBonusPullsPopIntoItsJob);
             Run(nameof(GainOfExactlyTheMinimumCounts), GainOfExactlyTheMinimumCounts);
             Run(nameof(MissedBonusesSayWhy), MissedBonusesSayWhy);
+            Run(nameof(NewSlotsLetBonusPopulationsIn), NewSlotsLetBonusPopulationsIn);
+            Run(nameof(FreeSlotsAreOnlyForOwnEffects), FreeSlotsAreOnlyForOwnEffects);
             Run(nameof(ApprovalLevelOnlyWhenItPays), ApprovalLevelOnlyWhenItPays);
             Run(nameof(MixingBonusSpreadsXavius), MixingBonusSpreadsXavius);
             Run(nameof(MixingMalusKeepsSolluskTogether), MixingMalusKeepsSolluskTogether);
@@ -502,13 +504,76 @@ namespace PopulationPlanner.Tests
             Expect(missed.Count == 1 && missed[0].Reason == MissedReason.MovedThisTurn, "already moved this turn");
             string composition = JobOptimizer.Composition(city.Jobs, t => t, j => j);
             Expect(composition == "Job02 2/2 (2 DaughterOfBor), Job03 2/2 (1 DaughterOfBor, 1 Plain)", $"who works where: {composition}");
+            // Artisans with free slots and only DoBs: nobody to trade places with, so the DoB takes a free slot.
             CityState emptied = JobCity(JobWorld(),
                 Job(2, "Job02", 21, Pop(21, "DaughterOfBor", 1f), Pop(22, "DaughterOfBor", 2f)),
                 Job(3, "Job03", 3, Pop(31, "DaughterOfBor", 5f), Pop(32, "Plain", 1f), Pop(33, "Plain", 1f)));
+            JobSwap move = JobOptimizer.BestSwap(state, emptied, 0.5f, null);
+            Expect(move != null && move.IsMove && move.Pop == 31 && move.To == 2 && !move.ForApproval, $"the scribe DoB moves into a free artisan slot (got {Show(move)})");
             missed = JobOptimizer.MissedBonuses(state, emptied, null);
-            Expect(missed.Count == 1 && missed[0].Reason == MissedReason.NoPartner, "artisans with free slots and only DoBs: nobody to trade places with");
+            Expect(missed.Count == 1 && missed[0].Reason == MissedReason.NoGain, "until then: no gain found");
             Expect(JobOptimizer.MissedBonuses(state, JobCity(JobWorld(), Job(2, "Job02", 2, Pop(21, "DaughterOfBor", 1f))), null).Count == 0,
                 "a DoB already in the artisans misses nothing");
+        }
+
+        // Green Scion: +4 Food as a Citizen. With the Citizens full of Green Scions, no swap gets the others in; a new
+        // slot in every job (Communal Habitations, bought out mid-turn in a real game) lets one move into it. How many
+        // work each job only changes for such a population's own bonus, and only when the city's job strategy agrees.
+        private static void NewSlotsLetBonusPopulationsIn()
+        {
+            GameState state = JobWorld();
+            CityState city = JobCity(state,
+                Job(1, "Job01", 3, Pop(11, "GreenScion", 3f), Pop(12, "GreenScion", 3f), Pop(13, "GreenScion", 3f)),
+                Job(2, "Job02", 3, Pop(21, "Xavius", 2f), Pop(22, "Xavius", 2f), Pop(23, "GreenScion", 2f)),
+                Job(3, "Job03", 3, Pop(31, "Plain", 2f), Pop(32, "Xavius", 2f), Pop(33, "GreenScion", 2f)));
+            Expect(JobOptimizer.BestSwap(state, city, 0.5f, null) == null, "Citizens full of Green Scions: no swap");
+            JobState before = city.Jobs.Clone();
+            string layout = JobOptimizer.Layout(city.Jobs);
+            foreach (JobCategory job in city.Jobs.Categories)
+            {
+                job.Slots = 4;
+            }
+            Expect(JobOptimizer.Layout(city.Jobs) != layout, "new slots change the layout");
+            ExpectText(JobOptimizer.LayoutChanges(before, city.Jobs, j => j), "slots Job01 3 -> 4, Job02 3 -> 4, Job03 3 -> 4");
+            JobSwap move = JobOptimizer.BestSwap(state, city, 0.5f, null);
+            // The scribe one: the artisan one would leave its two Xavius without another type (-8 Approval).
+            Expect(move != null && move.IsMove && move.Pop == 33 && move.To == 1 && !move.ForApproval && Math.Abs(move.Gain - 4f) < 0.01f,
+                $"a Green Scion moves into the new Citizens slot (+8 Food, -3 Approval, -2 Science, +1 Dust) (got {Show(move)})");
+            Expect(JobOptimizer.BestSwap(state, city, new JobRules { MinGain = 0.5f, ApprovalFloor = 28f, CurrentApproval = 30f }) == null,
+                "a move costing 3 Approval may not cross the floor");
+            JobOptimizer.Apply(city.Jobs, move);
+            JobSwap next = JobOptimizer.BestSwap(state, city, 0.5f, guid => guid == move.Pop);
+            Expect(next == null, $"Citizens full again: the other Green Scion stays (got {Show(next)})");
+
+            city.Jobs.Find(1).Slots = 5;
+            city.Jobs.Weights = new[] { 0.5f, 0.5f, 0.5f, 2f, 1f, 0.5f };
+            Expect(JobOptimizer.BestSwap(state, city, 0.5f, null) == null, "Science focus: +4 Food doesn't pay for a Scribe less");
+            city.Jobs.Weights = new[] { 2f, 0.5f, 1f, 0.5f, 0.5f, 0.5f };
+            JobSwap food = JobOptimizer.BestSwap(state, city, 0.5f, null);
+            Expect(food != null && food.IsMove && food.To == 1 && food.PopType == "GreenScion", $"Food focus: it does (got {Show(food)})");
+        }
+
+        // Populations without a job effect of their own never move into a free slot (head-counts are the strategy's),
+        // and a move only wins over a swap that keeps head-counts when it gains more.
+        private static void FreeSlotsAreOnlyForOwnEffects()
+        {
+            GameState state = JobWorld();
+            CityState city = JobCity(state,
+                Job(1, "Job01", 4, Pop(11, "Plain", 3f), Pop(12, "Plain", 3f)),
+                Job(3, "Job03", 4, Pop(31, "Plain", 3f), Pop(32, "Plain", 3f)));
+            city.Jobs.Weights = new[] { 2f, 0.5f, 1f, 0.5f, 0.5f, 0.5f };
+            Expect(JobOptimizer.BestSwap(state, city, 0.5f, null) == null, "Food focus, free Citizen slots: no Plain moves for the job's own yields");
+            // Last Lord: -3 Approval as a Citizen. Out to the Scribes, a swap with the Plain scribe and a move into a free
+            // Scribe slot both gain 3 at Balanced: the swap, which keeps head-counts, is preferred.
+            CityState lord = JobCity(JobWorld(),
+                Job(1, "Job01", 2, Pop(11, "LastLord", 3f), Pop(12, "Plain", 3f)),
+                Job(3, "Job03", 3, Pop(31, "Plain", 3f)));
+            JobSwap swap = JobOptimizer.BestSwap(state, lord, 0.5f, null);
+            Expect(swap != null && !swap.IsMove && (swap.Pop == 11 ? swap.Partner == 31 : swap.Pop == 31 && swap.Partner == 11) && Math.Abs(swap.Gain - 3f) < 0.01f,
+                $"tie: the swap keeps head-counts (got {Show(swap)})");
+            lord.Jobs.Find(3).Pops.Clear();
+            JobSwap move = JobOptimizer.BestSwap(state, lord, 0.5f, null);
+            Expect(move != null && move.IsMove && move.Pop == 11 && move.To == 3, $"no scribe to swap with: the Last Lord moves (got {Show(move)})");
         }
 
         // Happy (+15% Food and Industry) is chased only when that bonus is worth more than the job moves it takes. Five
@@ -702,7 +767,7 @@ namespace PopulationPlanner.Tests
             Expect(JobOptimizer.BestSwap(state, city, 0.5f, null) == null, "normally: head-counts are the strategy's, no move");
             var rules = new JobRules { MinGain = 0.5f, ApprovalFirst = true, CurrentApproval = 20f, ApprovalFloor = 28f };
             JobSwap move = JobOptimizer.BestSwap(state, city, rules);
-            Expect(move != null && move.IsMove && move.To == 3 && Math.Abs(move.Delta[Yield.Approval] - 3f) < 0.01f,
+            Expect(move != null && move.IsMove && move.ForApproval && move.To == 3 && Math.Abs(move.Delta[Yield.Approval] - 3f) < 0.01f,
                 $"approval first: a Citizen moves to Scribes for +3 Approval (got {Show(move)})");
         }
 
@@ -844,6 +909,10 @@ namespace PopulationPlanner.Tests
             state.JobEffects["DaughterOfBor"] = new List<JobEffect>
             {
                 new JobEffect { Field = Yield.Industry, Constants = new[] { 1f }, RequiredTags = new[] { "Tag_Job02" } },
+            };
+            state.JobEffects["GreenScion"] = new List<JobEffect>
+            {
+                new JobEffect { Field = Yield.Food, Constants = new[] { 4f }, RequiredTags = new[] { "Tag_Job01" } },
             };
             state.JobEffects["Xavius"] = new List<JobEffect> { Mixing(Yield.Approval, +1f, 4f) };
             state.JobEffects["Sollusk"] = new List<JobEffect> { Mixing(Yield.Approval, -1f, 2f) };

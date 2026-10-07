@@ -62,6 +62,13 @@ namespace PopulationPlanner
         // Each city's job strategy weights when last seen: a change means the game has just placed its populations again.
         private readonly Dictionary<ulong, float[]> strategyWeights = new Dictionary<ulong, float[]>();
         private int strategyCheckedVersion = -1;
+        // Each city's jobs when last seen this turn, and the slot and yield layouts already seen this turn: when a city's
+        // slots or yields per population change during the turn (a construction finished, e.g. bought out), the mod
+        // sorts out its jobs again. A layout seen before this turn doesn't count twice, so this always settles.
+        private readonly Dictionary<ulong, (JobState Jobs, string Layout)> layouts = new Dictionary<ulong, (JobState Jobs, string Layout)>();
+        private readonly HashSet<string> layoutsSeen = new HashSet<string>(StringComparer.Ordinal);
+        private int layoutTurn = -1;
+        private int layoutCheckedVersion = -1;
         // "city|pop" -> first turn that population may be picked again in that city.
         private readonly Dictionary<string, int> blockedUntil = new Dictionary<string, int>(StringComparer.Ordinal);
         private string gameId;
@@ -130,6 +137,7 @@ namespace PopulationPlanner
                 StartJobTurn();
             }
             NoticeStrategyChanges();
+            NoticeLayoutChanges();
             if (State.Version != plannedVersion || Revision != plannedRevision)
             {
                 Replan();
@@ -438,6 +446,10 @@ namespace PopulationPlanner
             jobTurn = -1;
             strategyWeights.Clear();
             strategyCheckedVersion = -1;
+            layouts.Clear();
+            layoutsSeen.Clear();
+            layoutTurn = -1;
+            layoutCheckedVersion = -1;
             levelChoices.Clear();
             plannedVersion = -1;
             summaryLogged = false;
@@ -601,6 +613,56 @@ namespace PopulationPlanner
             }
         }
 
+        // A city's job slots or yields per population changed during the turn: a construction finished (e.g. bought out;
+        // Communal Habitations adds a slot to each job), an improvement, a governor... Who should work where may be
+        // different now, so the mod sorts out that city's jobs again in the same turn: populations it already moved may
+        // move again. Its moves this turn still stand, so their approval and food stay counted.
+        private void NoticeLayoutChanges()
+        {
+            if (layoutCheckedVersion == State.Version)
+            {
+                return;
+            }
+            layoutCheckedVersion = State.Version;
+            if (layoutTurn != State.Turn)
+            {
+                // A new turn starts over anyway.
+                layoutTurn = State.Turn;
+                layouts.Clear();
+                layoutsSeen.Clear();
+            }
+            foreach (CityState city in State.Cities)
+            {
+                if (city.Jobs == null)
+                {
+                    continue;
+                }
+                string layout = JobOptimizer.Layout(city.Jobs);
+                bool seen = layouts.TryGetValue(city.Guid, out var before);
+                layouts[city.Guid] = (city.Jobs, layout);
+                if (!layoutsSeen.Add(city.Guid + "|" + layout) || !seen || before.Layout == layout)
+                {
+                    continue;
+                }
+                foreach (JobCategory job in city.Jobs.Categories)
+                {
+                    foreach (JobPop pop in job.Pops)
+                    {
+                        frozenPops.Remove(pop.Guid);
+                    }
+                }
+                jobCheckedAt.Remove(city.Guid);
+                jobNotes.Remove(city.Guid);
+                CitySettings settings = Settings.GetCity(city.Guid);
+                bool managed = Plugin.Automation.Value && Plugin.OptimizeJobs.Value && State.CanAct && !jobsHeld.Contains(city.Guid)
+                    && (settings == null || (!settings.Off && !settings.JobsOff));
+                if (managed && Plugin.LogDecisions.Value)
+                {
+                    Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: its jobs changed ({JobOptimizer.LayoutChanges(before.Jobs, city.Jobs, Names.Job)}); sorting them out again.");
+                }
+            }
+        }
+
         // No swap found: say which populations still miss a job bonus of their own, and why (Cities tab; the log once a
         // turn per city and text, with who works where, so a placement can be checked from the log alone).
         private void NoteMissedBonuses(CityState city)
@@ -630,10 +692,8 @@ namespace PopulationPlanner
                     return $"{who} (already moved this turn: each population moves at most once a turn)";
                 case MissedReason.FullOfSameType:
                     return $"{who} ({job} is full, and the worker the game would send out to make room is also a {type})";
-                case MissedReason.NoPartner:
-                    return $"{who} (nobody else works in {job} to trade places with, and the mod changes how many work each job only for approval; Reset jobs lets the game place everyone again)";
                 default:
-                    return $"{who} (no swap for them gains at least the minimum within the approval and food limits)";
+                    return $"{who} (no swap for them, nor a move into a free slot, gains at least the minimum with the city's job strategy, within the approval and food limits)";
             }
         }
 
@@ -780,7 +840,8 @@ namespace PopulationPlanner
             string text;
             if (swap.IsMove)
             {
-                text = $"{Names.Pop(swap.PopType)} moved to {JobName(city, swap.To)} for approval ({JobOptimizer.Describe(swap.Delta)})";
+                text = $"{Names.Pop(swap.PopType)} moved to {JobName(city, swap.To)} "
+                    + (swap.ForApproval ? "for approval" : "into a free slot") + $" ({JobOptimizer.Describe(swap.Delta)})";
             }
             else if (asPlanned)
             {

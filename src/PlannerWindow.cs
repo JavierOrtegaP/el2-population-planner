@@ -849,10 +849,11 @@ namespace PopulationPlanner
             GUILayout.Space(8f);
             Toggle(Plugin.OptimizeJobs, "Optimize jobs",
                 "Swaps populations between jobs so their job effects apply: Daughter of Bor as artisans, Xavius next to other population types, "
-                + "Sollusk kept together, and so on (read from the game data). How many work each job stays as your city's job strategy set it. "
-                + "A city where you drag populations between jobs yourself is left alone until next turn.");
+                + "Sollusk kept together, and so on (read from the game data). A population also takes a free slot in the job where its own bonus "
+                + "applies (e.g. a Green Scion as a citizen, also right after a construction adds slots); otherwise how many work each job stays as "
+                + "your city's job strategy set it. A city where you drag populations between jobs yourself is left alone until next turn.");
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Smallest gain worth a swap (yields weighted by the city's job strategy)", textStyle, GUILayout.Width(420f));
+            GUILayout.Label("Smallest gain worth a swap or move (yields weighted by the city's job strategy)", textStyle, GUILayout.Width(420f));
             if (GUILayout.Button("-", GUILayout.Width(26f)))
             {
                 Defer(() => Plugin.JobMinGain.Value = Mathf.Max(0.5f, Plugin.JobMinGain.Value - 0.5f));

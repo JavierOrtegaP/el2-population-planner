@@ -11,7 +11,8 @@ A [BepInEx](https://github.com/BepInEx/BepInEx) mod that takes the population mi
 
 - **Growth** — picks every city's next population so you unlock population bonuses one after another, without
   overshooting, and then gets one of each unlocked population into every city.
-- **Jobs** — swaps populations between Citizens, Artisans and Scribes so their job bonuses apply.
+- **Jobs** — swaps populations between Citizens, Artisans and Scribes, and moves them into free slots, so their job
+  bonuses apply.
 - **Approval** *(optional)* — keeps cities at least Content, Happy or Jubilant by growing and placing populations for
   approval when a city slips.
 
@@ -55,12 +56,18 @@ Many populations have job effects, read by the mod from the game data for every 
 | Last Lord, Hydracorn | -3 Approval as Citizens |
 
 The game already counts job bonuses when it places a *new* population, but not the mixing effects, and it never
-revisits populations already at work. The mod swaps populations between jobs to get the most out of each city's own
-job strategy (Balanced / Food / Industry / Science): how many work each job stays as the strategy set it; only who
-works where changes. One swap at a time per city, and each population at most once a turn, so a city settles within
-the turn (you can also cap the changes per city per turn). Severed Claws (and any population that adds job slots)
-are never moved. Changing a city's job strategy makes the game place all its populations again; the mod then
-optimizes them for the new strategy in the same turn.
+revisits populations already at work, not even when new slots open. The mod swaps populations between jobs to get the
+most out of each city's own job strategy (Balanced / Food / Industry / Science). How many work each job stays as the
+strategy set it, with one exception: a population takes a free slot in the job where its own bonus applies (e.g. a
+Green Scion as a Citizen once Communal Habitations adds a slot), or leaves a job where its own malus applies, when
+that pays with the city's strategy. One change at a time per city, and each population at most once a turn, so a
+city settles within the turn (you can also cap the changes per city per turn). Severed Claws (and any population
+that adds job slots) are never moved.
+
+Changing a city's job strategy makes the game place all its populations again; the mod then optimizes them for the
+new strategy in the same turn. Likewise, when a construction finishes during your turn (e.g. one you buy out) and
+changes a city's job slots or yields per population, the mod sorts out that city's jobs again right away, populations
+it already moved that turn included.
 
 ### Minimum approval (optional)
 
@@ -116,7 +123,7 @@ mod only gives the game its own orders, the same as clicking in the UI, so saves
   they apply in, with a *1 per city* switch.
 - **Cities** — each city's approval, current pick, what the mod picks and why; its target, its minimum approval,
   Auto/Off, Jobs auto/off, the last job change, Reset jobs, and why a population isn't in the job that gives it a
-  bonus when no swap can put it there.
+  bonus when no swap or move can put it there.
 - **Populations** — every population in the game, with what each of its bonuses gives in the game's own words, and
   how far you are from each. Unlike the game's screens, it includes populations you have none of yet.
 - **Settings** — the options below, window size and opacity.
@@ -137,8 +144,8 @@ per-city choices are saved per game in `BepInEx/config/PopulationPlanner/<game i
 | General / ContinueAfterOrder | true | After your order, keep going with the other populations. |
 | General / ManualPicks | UntilCityGrows | What a pick made by hand in the city screen does (UntilCityGrows, UntilResumed, Ignore). |
 | General / FailedGrowthCooldownTurns | 5 | Turns to avoid a population the game failed to add to a city. |
-| Jobs / OptimizeJobs | true | Swap populations between jobs. |
-| Jobs / MinimumGain | 0.5 | Smallest gain worth a swap (yields weighted by the city's job strategy). |
+| Jobs / OptimizeJobs | true | Swap populations between jobs, and move them into free slots where their own bonus applies. |
+| Jobs / MinimumGain | 0.5 | Smallest gain worth a swap or move (yields weighted by the city's job strategy). |
 | Jobs / MaxChangesPerCityPerTurn | 0 | Most job changes per city per turn; 0 = no limit. |
 | Approval / MinimumLevel | Off | Off, Content, Happy or Jubilant. |
 | Approval / Buffer | 3 | Act this many points above the level. |
@@ -150,7 +157,7 @@ per-city choices are saved per game in `BepInEx/config/PopulationPlanner/<game i
 
 ## Compatibility
 
-- Made for ENDLESS Legend 2 **1.0** (Steam build 25623753). It reads the game's data at runtime, so balance changes
+- Made for ENDLESS Legend 2 **1.0** (Steam build 25725410). It reads the game's data at runtime, so balance changes
   are followed; if an update breaks one of its hooks, that part switches itself off and the log says so.
 - Tested in single player. Multiplayer is untested.
 - Works alongside [District Planner](https://github.com/AndKenneth/el2-district-planner) and

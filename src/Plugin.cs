@@ -64,9 +64,9 @@ namespace PopulationPlanner
             FailedGrowthCooldown = Config.Bind("General", "FailedGrowthCooldownTurns", 5,
                 new ConfigDescription("If the game fails to add a population to a city, don't pick that population there again for this many turns.", new AcceptableValueRange<int>(1, 100)));
             OptimizeJobs = Config.Bind("Jobs", "OptimizeJobs", true,
-                "Swap populations between jobs so their job effects apply (e.g. Daughter of Bor as artisans, Xavius next to other population types, Sollusk kept together). How many work each job stays as the city's job strategy set it.");
+                "Swap populations between jobs so their job effects apply (e.g. Daughter of Bor as artisans, Xavius next to other population types, Sollusk kept together), and move a population into a free slot of the job where its own bonus applies (e.g. Green Scion as a citizen). Otherwise how many work each job stays as the city's job strategy set it.");
             JobMinGain = Config.Bind("Jobs", "MinimumGain", 0.5f,
-                new ConfigDescription("A swap must gain at least this much (yields weighted by the city's job strategy) to be done.", new AcceptableValueRange<float>(0.1f, 20f)));
+                new ConfigDescription("A swap or move must gain at least this much (yields weighted by the city's job strategy) to be done.", new AcceptableValueRange<float>(0.1f, 20f)));
             MaxJobChanges = Config.Bind("Jobs", "MaxChangesPerCityPerTurn", 0,
                 new ConfigDescription("The most job changes the mod makes in one city per turn; 0 = no limit. Each population moves at most once a turn either way, so a city always settles within the turn.", new AcceptableValueRange<int>(0, 100)));
             MinimumApproval = Config.Bind("Approval", "MinimumLevel", ApprovalRule.Off,

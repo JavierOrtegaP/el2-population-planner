@@ -493,6 +493,10 @@ namespace PopulationPlanner
                         {
                             Mix((long)job.Guid);
                             Mix(job.Slots);
+                            foreach (float value in job.Base)
+                            {
+                                Mix((long)System.Math.Round(value * 100f));
+                            }
                             foreach (JobPop pop in job.Pops)
                             {
                                 Mix((long)pop.Guid);

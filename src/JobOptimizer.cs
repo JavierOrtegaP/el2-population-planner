@@ -5,7 +5,8 @@ using System.Linq;
 namespace PopulationPlanner
 {
     // Two populations of different types trading jobs, done with the game's "move to job" order. Head-counts per job
-    // stay as they were (the city's job strategy set them); only who works where changes.
+    // stay as they were (the city's job strategy set them); only who works where changes. Or one population moving
+    // into a free slot: for approval, or into the job where its own bonus applies (out of one where its own malus does).
     internal sealed class JobSwap
     {
         public ulong City;
@@ -20,8 +21,10 @@ namespace PopulationPlanner
         public bool TwoOrders;
         // Weighted by the city's job strategy.
         public float Gain;
-        // No partner: a plain move into a free slot (only when approval comes first).
+        // No partner: a plain move into a free slot.
         public bool IsMove => Partner == 0UL;
+        // A plain move made because approval comes first (otherwise it is for the population's own job effects).
+        public bool ForApproval;
         // Change per yield, unweighted.
         public float[] Delta = new float[Yield.Count];
     }
@@ -71,10 +74,7 @@ namespace PopulationPlanner
         MovedThisTurn,
         // The job is full, and the worker the game would send out to make room is of the same type.
         FullOfSameType,
-        // Nobody of another type works in that job to trade places with; filling its free slots would change how many
-        // work each job, which the mod does only for approval.
-        NoPartner,
-        // No swap for them gains at least the minimum within the approval and food limits.
+        // No swap for them, nor a move into a free slot, gains at least the minimum within the approval and food limits.
         NoGain,
     }
 
@@ -87,7 +87,7 @@ namespace PopulationPlanner
             return BestSwap(state, city, new JobRules { MinGain = minGain, IsFrozen = isFrozen });
         }
 
-        // The swap (or, approval first, move) with the largest gain above the minimum, or null.
+        // The swap (or move into a free slot) with the largest gain above the minimum, or null.
         public static JobSwap BestSwap(GameState state, CityState city, JobRules rules)
         {
             JobState jobs = city.Jobs;
@@ -133,17 +133,19 @@ namespace PopulationPlanner
                         {
                             Offer(from, pop, to, partner, twoOrders: true);
                         }
-                        if (rules.ApprovalFirst)
+                        // A plain move into the free slot, changing the head-counts: approval first, or for the
+                        // population's own job effects (e.g. a Green Scion into a free Citizens slot).
+                        bool ownMove = OwnValue(state, pop.Type, to, weights) - OwnValue(state, pop.Type, from, weights) > 1e-4f;
+                        if (rules.ApprovalFirst || ownMove)
                         {
-                            // Approval first: a plain move into the free slot, changing the head-counts.
-                            Offer(from, pop, to, null, twoOrders: false);
+                            Offer(from, pop, to, null, twoOrders: false, ownMove);
                         }
                     }
                 }
             }
             return best;
 
-            void Offer(JobCategory from, JobPop pop, JobCategory to, JobPop? partner, bool twoOrders)
+            void Offer(JobCategory from, JobPop pop, JobCategory to, JobPop? partner, bool twoOrders, bool ownMove = false)
             {
                 if (partner.HasValue && (partner.Value.Type == pop.Type || !IsMovable(state, partner.Value, isFrozen)))
                 {
@@ -164,9 +166,11 @@ namespace PopulationPlanner
                 {
                     return;
                 }
-                if (!partner.HasValue && delta[Yield.Approval] <= 1e-3f)
+                bool forApproval = !partner.HasValue && rules.ApprovalFirst && delta[Yield.Approval] > 1e-3f;
+                if (!partner.HasValue && !forApproval && !ownMove)
                 {
-                    // Plain moves change the head-counts the city's strategy chose: only ever for approval.
+                    // Plain moves change the head-counts the city's strategy chose: only for approval, or for the
+                    // population's own job effects.
                     return;
                 }
                 if (!float.IsNaN(rules.ApprovalFloor) && delta[Yield.Approval] < -1e-4f && rules.CurrentApproval + delta[Yield.Approval] < rules.ApprovalFloor)
@@ -180,7 +184,7 @@ namespace PopulationPlanner
                     return;
                 }
                 // Ties go to keeping head-counts, then to fewer orders.
-                int rank = partner.HasValue ? (twoOrders ? 2 : 0) : 1;
+                int rank = partner.HasValue ? (twoOrders ? 1 : 0) : 2;
                 bool better = best == null || gain > best.Gain + 1e-4f || (Math.Abs(gain - best.Gain) <= 1e-4f && rank < Rank(best));
                 // At least the minimum gain: e.g. a +1 Industry job bonus at a Food focus (Industry x0.5) is worth exactly 0.5.
                 if (gain >= minGain - 1e-4f && better)
@@ -196,13 +200,39 @@ namespace PopulationPlanner
                         PartnerType = partner?.Type,
                         TwoOrders = twoOrders,
                         Gain = gain,
+                        ForApproval = forApproval,
                         Delta = delta,
                     };
                 }
             }
         }
 
-        private static int Rank(JobSwap swap) => swap.IsMove ? 1 : swap.TwoOrders ? 2 : 0;
+        private static int Rank(JobSwap swap) => swap.IsMove ? 2 : swap.TwoOrders ? 1 : 0;
+
+        // What a population's own job effects are worth in a job, weighted: those that don't depend on who works next
+        // to it (e.g. Green Scion +4 Food as a Citizen, Last Lord -3 Approval as a Citizen).
+        private static float OwnValue(GameState state, string type, JobCategory job, float[] weights)
+        {
+            if (!state.JobEffects.TryGetValue(type, out List<JobEffect> effects))
+            {
+                return 0f;
+            }
+            float value = 0f;
+            foreach (JobEffect effect in effects)
+            {
+                if (effect.PerCoworkerDescriptor != null || !effect.AppliesIn(job))
+                {
+                    continue;
+                }
+                float alone = effect.Evaluate(1);
+                if (float.IsNaN(alone) || Math.Abs(alone - effect.Evaluate(2)) > 1e-4f)
+                {
+                    continue;
+                }
+                value += weights[effect.Field] * effect.Sign * alone;
+            }
+            return value;
+        }
 
         // What the populations of one job yield together, in the terms of the game's own job scoring: the job's yield
         // per population plus each population's job effects.
@@ -301,10 +331,6 @@ namespace PopulationPlanner
                 {
                     entry.Reason = MissedReason.FullOfSameType;
                 }
-                else if (entry.Job.Pops.TrueForAll(p => p.Type == entry.Type))
-                {
-                    entry.Reason = MissedReason.NoPartner;
-                }
                 else
                 {
                     entry.Reason = MissedReason.NoGain;
@@ -384,6 +410,60 @@ namespace PopulationPlanner
                     .ToArray();
                 return $"{jobName(job.Name)} {job.Pops.Count}/{job.Slots}" + (counts.Length > 0 ? $" ({string.Join(", ", counts)})" : string.Empty);
             }).ToArray());
+        }
+
+        // Each job's slots and yields per population: what a construction (e.g. Communal Habitations), an improvement or
+        // a governor changes, and who works where doesn't.
+        public static string Layout(JobState jobs)
+        {
+            var text = new System.Text.StringBuilder();
+            foreach (JobCategory job in jobs.Categories)
+            {
+                text.Append(job.Guid).Append(':').Append(job.Slots);
+                foreach (float value in job.Base)
+                {
+                    text.Append(',').Append(Math.Round(value, 2).ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
+                text.Append(';');
+            }
+            return text.ToString();
+        }
+
+        // "slots Citizens 3 -> 4, Scribes 3 -> 4; yields per population in Artisans": how a city's jobs changed.
+        public static string LayoutChanges(JobState before, JobState after, Func<string, string> jobName)
+        {
+            var slots = new List<string>();
+            var yields = new List<string>();
+            foreach (JobCategory job in after.Categories)
+            {
+                JobCategory old = before.Find(job.Guid);
+                int oldSlots = old?.Slots ?? 0;
+                if (oldSlots != job.Slots)
+                {
+                    slots.Add($"{jobName(job.Name)} {oldSlots} -> {job.Slots}");
+                }
+                if (old != null && Enumerable.Range(0, Yield.Count).Any(f => Math.Abs(old.Base[f] - job.Base[f]) > 0.005f))
+                {
+                    yields.Add(jobName(job.Name));
+                }
+            }
+            foreach (JobCategory old in before.Categories)
+            {
+                if (after.Find(old.Guid) == null)
+                {
+                    slots.Add($"{jobName(old.Name)} {old.Slots} -> 0");
+                }
+            }
+            var parts = new List<string>();
+            if (slots.Count > 0)
+            {
+                parts.Add("slots " + string.Join(", ", slots.ToArray()));
+            }
+            if (yields.Count > 0)
+            {
+                parts.Add("yields per population in " + string.Join(", ", yields.ToArray()));
+            }
+            return string.Join("; ", parts.ToArray());
         }
 
         // A job of the city, other than the current one, where one of these plain bonuses applies; null when the current

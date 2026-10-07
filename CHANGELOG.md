@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.0 — 2026-10-07
+
+- When a construction finishes during your turn (e.g. one you buy out) and changes a city's job slots or yields per
+  population, the mod sorts out that city's jobs again right away, populations it already moved that turn included.
+  The log says what changed.
+- New slots are now used: a population takes a free slot in the job where its own bonus applies (e.g. a Green Scion
+  as a Citizen, a Daughter of Bor as an Artisan), or leaves a job where its own malus applies (e.g. a Last Lord out
+  of the Citizens), when that gains at least the minimum, weighed by the city's job strategy, within the approval and
+  food limits. Until now the mod only swapped populations, so after Communal Habitations added a slot to each job,
+  Green Scions outside the Citizens stayed there until the city grew. Otherwise, how many work each job still stays
+  as the strategy set it. The Cities tab's "nobody else works in that job to trade places with" note is gone: those
+  populations now take the free slot themselves.
+- Made for the game update of 2026-10-07 (Steam build 25725410).
+
 ## 1.2.3 — 2026-10-04
 
 - No changes to the mod itself. The download now comes with the current README, and Population Planner is also on
