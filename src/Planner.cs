@@ -62,6 +62,10 @@ namespace PopulationPlanner
         public Func<CityState, float> ApprovalTarget;
         // The city's approval as the mod counts it (null = the game's net value).
         public Func<CityState, float> ApprovalOf;
+        // Whether the mod optimizes the city's jobs (so it may move a new population to its bonus job), and the gain a
+        // move needs.
+        public Func<CityState, bool> JobsOptimized = city => true;
+        public float JobMinGain = 0.5f;
     }
 
     internal sealed class PlanResult
@@ -126,7 +130,7 @@ namespace PopulationPlanner
 
             if (options.ApprovalTarget != null)
             {
-                ApprovalFirst(state, open, reserved, result, options.ApprovalTarget, options.ApprovalOf ?? (city => city.ApprovalNet));
+                ApprovalFirst(state, open, reserved, result, options);
             }
             if (options.SpreadFirst)
             {
@@ -193,23 +197,24 @@ namespace PopulationPlanner
             return list;
         }
 
-        // Cities below their minimum approval grow the population adding the most approval there, before anything else.
-        // When every choice adds the same (e.g. no job has room: any new population is Destitute), approval can't decide
-        // and the normal plan goes on.
-        private static void ApprovalFirst(GameState state, List<Candidate> open, Dictionary<string, int> reserved, PlanResult result,
-            Func<CityState, float> target, Func<CityState, float> approvalOf)
+        // Cities below their minimum approval grow the population adding the most approval there, in the job it will work,
+        // before anything else. When every choice adds the same (e.g. no job has room: any new population is Destitute),
+        // approval can't decide and the normal plan goes on.
+        private static void ApprovalFirst(GameState state, List<Candidate> open, Dictionary<string, int> reserved, PlanResult result, PlanOptions options)
         {
+            Func<CityState, float> approvalOf = options.ApprovalOf ?? (city => city.ApprovalNet);
             foreach (Candidate candidate in open)
             {
-                float needed = target(candidate.City);
+                float needed = options.ApprovalTarget(candidate.City);
                 if (float.IsNaN(needed) || approvalOf(candidate.City) >= needed)
                 {
                     continue;
                 }
+                bool moved = options.JobsOptimized == null || options.JobsOptimized(candidate.City);
                 var gains = new Dictionary<string, float>(StringComparer.Ordinal);
                 foreach (string pop in candidate.Growable)
                 {
-                    gains[pop] = JobOptimizer.ApprovalOfNewPop(state, candidate.City, pop);
+                    gains[pop] = JobOptimizer.ApprovalOfNewPop(state, candidate.City, pop, moved, options.JobMinGain);
                 }
                 float best = gains.Values.Max();
                 if (best - gains.Values.Min() < 0.5f)

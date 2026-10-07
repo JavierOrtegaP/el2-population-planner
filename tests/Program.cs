@@ -58,6 +58,7 @@ namespace PopulationPlanner.Tests
             Run(nameof(ApprovalFirstNeverReshufflesOrStarves), ApprovalFirstNeverReshufflesOrStarves);
             Run(nameof(LowApprovalCityGrowsXavius), LowApprovalCityGrowsXavius);
             Run(nameof(LowApprovalCityAvoidsLastLordAsCitizen), LowApprovalCityAvoidsLastLordAsCitizen);
+            Run(nameof(NewPopApprovalCountsWhereItWillWork), NewPopApprovalCountsWhereItWillWork);
             Run(nameof(ApprovalTargetsFollowSettings), ApprovalTargetsFollowSettings);
             Run(nameof(BonusTextIsPlain), BonusTextIsPlain);
             Console.WriteLine();
@@ -843,6 +844,49 @@ namespace PopulationPlanner.Tests
             Expect(fine.Cities[1].Kind != PlanKind.Approval, "above the target: normal plan");
         }
 
+        // Found in a real game: a new Agrarian city, its one population a Citizen, grew Noquensii "for +3 approval", which
+        // it only gives as a Scribe. The game places a new population by the city's job strategy, here in the Citizens
+        // (-3), and moving it to the Scribes costs more Food than it is worth there. A Xavius next to the Citizen adds +1.
+        private static void NewPopApprovalCountsWhereItWillWork()
+        {
+            GameState state = JobWorld();
+            state.Types["Noquensii"] = Type("Noquensii", 0, 0);
+            state.Types["Xavius"] = Type("Xavius", 30, 3);
+            CityState city = JobCity(state,
+                Job(1, "Job01", 3, Pop(11, "Plain", 3f)),
+                Job(2, "Job02", 2),
+                Job(3, "Job03", 2));
+            city.Jobs.Weights = new[] { 2f, 0.5f, 1f, 0.5f, 0.5f, 0.5f };
+            float noquensii = JobOptimizer.ApprovalOfNewPop(state, city, "Noquensii");
+            float xavius = JobOptimizer.ApprovalOfNewPop(state, city, "Xavius");
+            Expect(Math.Abs(noquensii + 3f) < 0.01f, $"Agrarian: a new Noquensii works as a Citizen, -3 (got {noquensii})");
+            Expect(Math.Abs(xavius - 1f) < 0.01f, $"Agrarian: a new Xavius next to the Citizen, +1 (got {xavius})");
+            city.Growing = "Noquensii";
+            city.ApprovalNet = 40f;
+            city.FoodNet = 3f;
+            city.TurnsToGrowth = 2f;
+            city.Options.Add(new GrowOption("Noquensii", 2f));
+            city.Options.Add(new GrowOption("Xavius", 2f));
+            PlanResult plan = Planner.Plan(state, new GameSettings(), new PlanOptions { ApprovalTarget = c => 88f });
+            ExpectPick(plan, 1, "Xavius", PlanKind.Approval);
+
+            // Balanced fills the emptiest jobs first: a Noquensii takes a Scribe slot and gives its +3 there.
+            city.Jobs.Weights = new[] { 1f, 1f, 1f, 1f, 1f, 1f };
+            city.Jobs.FillLowestFirst = true;
+            noquensii = JobOptimizer.ApprovalOfNewPop(state, city, "Noquensii");
+            Expect(Math.Abs(noquensii - 3f) < 0.01f, $"Balanced: as a Scribe, +3 (got {noquensii})");
+            // With the Citizens emptiest, the game places it there and the mod moves it to its Scribe bonus, unless the mod
+            // leaves this city's jobs alone.
+            CityState other = JobCity(JobWorld(),
+                Job(1, "Job01", 3),
+                Job(2, "Job02", 2, Pop(21, "Plain", 3f)),
+                Job(3, "Job03", 2, Pop(31, "Plain", 3f)));
+            other.Jobs.FillLowestFirst = true;
+            float moved = JobOptimizer.ApprovalOfNewPop(state, other, "Noquensii");
+            float left = JobOptimizer.ApprovalOfNewPop(state, other, "Noquensii", movedByMod: false);
+            Expect(Math.Abs(moved - 3f) < 0.01f && Math.Abs(left + 3f) < 0.01f, $"placed as a Citizen: +3 once moved to the Scribes, -3 if not (got {moved}, {left})");
+        }
+
         // Only Citizen slots free: a Last Lord would cost -6 (job -3, its own -3), Plain -3: Plain it is.
         private static void LowApprovalCityAvoidsLastLordAsCitizen()
         {
@@ -923,6 +967,10 @@ namespace PopulationPlanner.Tests
             state.JobEffects["GreenScion"] = new List<JobEffect>
             {
                 new JobEffect { Field = Yield.Food, Constants = new[] { 4f }, RequiredTags = new[] { "Tag_Job01" } },
+            };
+            state.JobEffects["Noquensii"] = new List<JobEffect>
+            {
+                new JobEffect { Field = Yield.Approval, Constants = new[] { 3f }, RequiredTags = new[] { "Tag_Job03" } },
             };
             state.JobEffects["Xavius"] = new List<JobEffect> { Mixing(Yield.Approval, +1f, 4f) };
             state.JobEffects["Sollusk"] = new List<JobEffect> { Mixing(Yield.Approval, -1f, 2f) };

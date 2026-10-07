@@ -79,7 +79,8 @@ Pick a level in the window: Content (25+), Happy (60+) or Jubilant (85+), global
 below it (plus a small buffer, 3 by default — about what one more Citizen or Artisan costs), the city:
 
 - grows the population that adds the most approval there (e.g. Xavius next to other types, Noquensii as Scribes),
-  and avoids ones that cost approval where they would work;
+  counted in the job it will actually work: the one the game places it in by the city's job strategy, or the one
+  the mod then moves it to for its own bonus. It avoids ones that cost approval where they would work;
 - puts approval first in its jobs, and may also move populations into free Scribe slots (Scribes cost no approval,
   Citizens and Artisans -3 each), never so far that the city's food goes negative.
 

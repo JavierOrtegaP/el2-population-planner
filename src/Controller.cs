@@ -532,6 +532,12 @@ namespace PopulationPlanner
                 IsBlocked = IsBlocked,
                 ApprovalTarget = GrowthApprovalTarget,
                 ApprovalOf = ApprovalOf,
+                JobsOptimized = city =>
+                {
+                    CitySettings settings = Settings.GetCity(city.Guid);
+                    return Plugin.OptimizeJobs.Value && (settings == null || (!settings.Off && !settings.JobsOff));
+                },
+                JobMinGain = Mathf.Max(0.1f, Plugin.JobMinGain.Value),
             };
             Plan = Planner.Plan(State, Settings, options);
             plannedVersion = State.Version;
@@ -659,7 +665,7 @@ namespace PopulationPlanner
                 if (Plugin.LogDecisions.Value)
                 {
                     Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: "
-                        + (restored ? $"job strategy set back to {Names.Strategy(city.Jobs.Strategy)}" : "job strategy changed")
+                        + (restored ? "job strategy set back to " : "job strategy changed to ") + Names.Strategy(city.Jobs.Strategy)
                         + " and the game placed its populations again; optimizing them for it.");
                 }
             }

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.3 — 2026-10-07
+
+- Fixed: a city growing for approval judged each population by the job where its approval would be highest, but the
+  game places a new population by the city's job strategy. For example, a new Agrarian city grew Noquensii "for +3
+  approval", which it only gives as a Scribe, while the game puts it among the Citizens (-3 there). It now counts
+  the job the game will place it in, or the one the mod then moves it to for its own bonus, so that city grows a
+  Xavius next to its Citizen (+1) instead.
+- The log names the strategy a city's job strategy was changed to.
+
 ## 1.3.2 — 2026-10-07
 
 - When the game resets a city's job strategy to Balanced on its own (it does that to every city whenever your empire

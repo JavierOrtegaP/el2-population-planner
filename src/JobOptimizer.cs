@@ -81,6 +81,8 @@ namespace PopulationPlanner
     internal static class JobOptimizer
     {
         private const float FoodMargin = 1.25f;
+        // A population not grown yet, tried in a copy of the jobs (0 means "none" to Without).
+        private const ulong Newcomer = ulong.MaxValue;
 
         public static JobSwap BestSwap(GameState state, CityState city, float minGain, Func<ulong, bool> isFrozen)
         {
@@ -557,27 +559,76 @@ namespace PopulationPlanner
             return result;
         }
 
-        // Approval one more population of this type adds in the city, working the job where that is highest among the
-        // jobs with a free slot (its own effects, its job's approval per population, and its effect on co-workers, e.g.
-        // a new type next to Xavius). 0 when no job has room: it would be Destitute whatever its type.
-        public static float ApprovalOfNewPop(GameState state, CityState city, string type)
+        // Approval one more population of this type adds in the city, in the job it will work: the one the game places it
+        // in, or the one the mod then moves it to for its own job effects (when it optimizes the city's jobs). Its own
+        // effects, its job's approval per population and its effect on co-workers count (e.g. a new type next to Xavius).
+        // 0 when no job has room: it would be Destitute whatever its type.
+        public static float ApprovalOfNewPop(GameState state, CityState city, string type, bool movedByMod = true, float minGain = 0.5f)
         {
-            if (city.Jobs == null)
+            JobState jobs = city.Jobs;
+            JobCategory placed = jobs == null ? null : PlacementJob(state, jobs, type);
+            if (placed == null)
             {
                 return 0f;
             }
-            float best = float.NegativeInfinity;
-            foreach (JobCategory job in city.Jobs.Categories)
+            JobState after = jobs.Clone();
+            after.Find(placed.Guid).Pops.Add(new JobPop(Newcomer, type, 0f));
+            if (movedByMod)
             {
-                if (job.Slots <= 0 || job.IsFull)
+                // Only the newcomer may move: everyone else stays where they are.
+                JobSwap move = BestSwap(state, new CityState { Guid = city.Guid, Jobs = after }, new JobRules { MinGain = minGain, IsFrozen = guid => guid != Newcomer });
+                if (move != null && move.IsMove)
+                {
+                    Apply(after, move);
+                }
+            }
+            return TotalApproval(state, after) - TotalApproval(state, jobs);
+        }
+
+        // The job the game gives a new population of this type: among the jobs with room (with Balanced, only the least
+        // filled ones), the one where the job's yields per population plus the population's own effects there are worth
+        // the most by the city's job strategy (the game leaves out effects that depend on co-workers); the later one on a
+        // tie, as the game does. Null when no job has room.
+        public static JobCategory PlacementJob(GameState state, JobState jobs, string type)
+        {
+            float lowest = float.MaxValue;
+            foreach (JobCategory job in jobs.Categories)
+            {
+                if (job.Slots > 0 && !job.IsFull)
+                {
+                    lowest = Math.Min(lowest, (float)job.Pops.Count / job.Slots);
+                }
+            }
+            JobCategory best = null;
+            float bestScore = float.NegativeInfinity;
+            foreach (JobCategory job in jobs.Categories)
+            {
+                if (job.Slots <= 0 || job.IsFull || (jobs.FillLowestFirst && (float)job.Pops.Count / job.Slots > lowest + 1e-6f))
                 {
                     continue;
                 }
-                float before = Yields(state, job, job.Pops)[Yield.Approval];
-                float after = Yields(state, job, Without(job.Pops, 0UL, new JobPop(0UL, type, 0f)))[Yield.Approval];
-                best = Math.Max(best, after - before);
+                float score = OwnValue(state, type, job, jobs.Weights);
+                for (int f = 0; f < Yield.Count; f++)
+                {
+                    score += jobs.Weights[f] * job.Base[f];
+                }
+                if (score >= bestScore - 1e-4f)
+                {
+                    best = job;
+                    bestScore = Math.Max(bestScore, score);
+                }
             }
-            return float.IsNegativeInfinity(best) ? 0f : best;
+            return best;
+        }
+
+        private static float TotalApproval(GameState state, JobState jobs)
+        {
+            float total = 0f;
+            foreach (JobCategory job in jobs.Categories)
+            {
+                total += Yields(state, job, job.Pops)[Yield.Approval];
+            }
+            return total;
         }
 
         private static bool HasDescriptor(GameState state, string type, string descriptor)

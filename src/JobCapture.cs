@@ -58,6 +58,7 @@ namespace PopulationPlanner
             var jobs = new JobState { CanReassign = (settlement.CityFlags & CityFlags.UnderSubjugation) == 0 };
             PopulationAssignementStrategyDefinition strategy = settlement.PopulationAssignementStrategyDefinition;
             jobs.Strategy = ReferenceEquals(strategy, null) ? string.Empty : strategy.Name.ToString();
+            jobs.FillLowestFirst = !ReferenceEquals(strategy, null) && strategy.FillLowestPopulatedCategoryFirst;
             FimsInfo weights = settlement.PopulationAssignementPonderation;
             jobs.Weights = new[] { (float)weights.Food, (float)weights.Industry, (float)weights.Money, (float)weights.Science, (float)weights.Influence, (float)weights.Approval };
             bool anyWeight = false;
