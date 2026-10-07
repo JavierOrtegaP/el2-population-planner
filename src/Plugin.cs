@@ -36,6 +36,7 @@ namespace PopulationPlanner
         internal static ConfigEntry<bool> OptimizeJobs;
         internal static ConfigEntry<float> JobMinGain;
         internal static ConfigEntry<int> MaxJobChanges;
+        internal static ConfigEntry<bool> RestoreStrategies;
         internal static ConfigEntry<string> MinimumApproval;
         internal static ConfigEntry<int> ApprovalBuffer;
         internal static ConfigEntry<bool> ApprovalOnlyWhenItPays;
@@ -69,6 +70,8 @@ namespace PopulationPlanner
                 new ConfigDescription("A swap or move must gain at least this much (yields weighted by the city's job strategy) to be done.", new AcceptableValueRange<float>(0.1f, 20f)));
             MaxJobChanges = Config.Bind("Jobs", "MaxChangesPerCityPerTurn", 0,
                 new ConfigDescription("The most job changes the mod makes in one city per turn; 0 = no limit. Each population moves at most once a turn either way, so a city always settles within the turn.", new AcceptableValueRange<int>(0, 100)));
+            RestoreStrategies = Config.Bind("Jobs", "RestoreStrategyAfterGameReset", true,
+                "The game resets every city's job strategy to Balanced whenever your empire gains or loses a special ability (a game bug). Set it back to the strategy you picked; as when you pick one, the game then places the city's populations again.");
             MinimumApproval = Config.Bind("Approval", "MinimumLevel", ApprovalRule.Off,
                 new ConfigDescription("Keep every city at least at this approval level (Off, Content, Happy or Jubilant; cities can override it in the window). "
                     + "Below it, the city grows the population adding the most approval there and its jobs put approval first.",

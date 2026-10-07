@@ -188,14 +188,15 @@ namespace PopulationPlanner
     {
         // False while the city is under subjugation: the game refuses job changes then.
         public bool CanReassign = true;
-        // The city's job strategy weights (Balanced, Food, Industry, Science), per yield.
+        // The city's job strategy (e.g. PopulationStrategy_Food) and its weights per yield.
+        public string Strategy = string.Empty;
         public float[] Weights = { 1f, 1f, 1f, 1f, 1f, 1f };
         public readonly List<JobCategory> Categories = new List<JobCategory>();
 
         // A copy to try job moves on (populations and slots copied; the rest shared, as it doesn't change).
         public JobState Clone()
         {
-            var copy = new JobState { CanReassign = CanReassign, Weights = Weights };
+            var copy = new JobState { CanReassign = CanReassign, Strategy = Strategy, Weights = Weights };
             foreach (JobCategory category in Categories)
             {
                 var job = new JobCategory { Guid = category.Guid, Name = category.Name, Slots = category.Slots, Base = category.Base };

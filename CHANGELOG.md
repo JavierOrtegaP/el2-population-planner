@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.2 — 2026-10-07
+
+- When the game resets a city's job strategy to Balanced on its own (it does that to every city whenever your empire
+  gains or loses a special ability, a game bug), the mod now sets back the strategy you picked, with the game's own
+  order. As when you pick one, the game then places the city's populations again, and the mod optimizes them. Not in
+  a city you turned off (or its jobs), and not while your own job moves there hold (it waits for the next turn). Off
+  with Jobs / RestoreStrategyAfterGameReset, also in Settings.
+
 ## 1.3.1 — 2026-10-07
 
 - Fixed: with *only when it pays*, a city already Happy or Jubilant but still inside the buffer (e.g. at 86, with

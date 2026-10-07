@@ -878,6 +878,9 @@ namespace PopulationPlanner
                 Defer(() => Plugin.MaxJobChanges.Value = next);
             }
             GUILayout.EndHorizontal();
+            Toggle(Plugin.RestoreStrategies, "Set job strategies back after the game resets them",
+                "The game resets every city's job strategy to Balanced whenever your empire gains or loses a special ability (a game bug). "
+                + "This sets back the strategy you picked; as when you pick one, the game then places the city's populations again.");
 
             GUILayout.Space(8f);
             GUILayout.Label("When I pick a city's next population myself", headingStyle);

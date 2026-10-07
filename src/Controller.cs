@@ -66,6 +66,8 @@ namespace PopulationPlanner
         private int strategyCheckedVersion = -1;
         private readonly Dictionary<ulong, int> strategyResets = new Dictionary<ulong, int>();
         private readonly Dictionary<ulong, string> strategyNotes = new Dictionary<ulong, string>();
+        // Strategies to set back after the game reset them, and the order sent for each (Pop = the strategy).
+        private readonly Dictionary<ulong, PendingOrder> strategyRestores = new Dictionary<ulong, PendingOrder>();
         // Each city's jobs when last seen this turn, and the slot and yield layouts already seen this turn: when a city's
         // slots or yields per population change during the turn (a construction finished, e.g. bought out), the mod
         // sorts out its jobs again. A layout seen before this turn doesn't count twice, so this always settles.
@@ -149,6 +151,7 @@ namespace PopulationPlanner
             }
             if (Plugin.Automation.Value && State.CanAct && State.IsHuman)
             {
+                RestoreStrategies();
                 ApplyOrders();
                 if (Plugin.OptimizeJobs.Value)
                 {
@@ -475,6 +478,7 @@ namespace PopulationPlanner
             strategyCheckedVersion = -1;
             strategyResets.Clear();
             strategyNotes.Clear();
+            strategyRestores.Clear();
             while (StrategyResetPatch.Resets.TryDequeue(out _))
             {
             }
@@ -628,30 +632,116 @@ namespace PopulationPlanner
                 {
                     continue;
                 }
-                foreach (JobCategory job in city.Jobs.Categories)
-                {
-                    foreach (JobPop pop in job.Pops)
-                    {
-                        frozenPops.Remove(pop.Guid);
-                    }
-                }
-                jobCheckedAt.Remove(city.Guid);
-                jobNotes.Remove(city.Guid);
                 if (strategyResets.TryGetValue(city.Guid, out int resetTurn) && resetTurn >= State.Turn - 1)
                 {
+                    // Only the weights changed: the mod's moves stand, but its populations may be weighed again.
                     strategyResets.Remove(city.Guid);
+                    foreach (JobCategory job in city.Jobs.Categories)
+                    {
+                        foreach (JobPop pop in job.Pops)
+                        {
+                            frozenPops.Remove(pop.Guid);
+                        }
+                    }
+                    jobCheckedAt.Remove(city.Guid);
+                    jobNotes.Remove(city.Guid);
                     continue;
                 }
+                StartCityOver(city);
                 strategyNotes.Remove(city.Guid);
-                swapsThisTurn.Remove(city.Guid);
-                jobPlans.Remove(city.Guid);
-                jobTurnBase.Remove(city.Guid);
-                jobTurnDelta.Remove(city.Guid);
-                lastJobChange.Remove(city.Guid);
+                bool restored = strategyRestores.TryGetValue(city.Guid, out PendingOrder restore) && restore.Pop == city.Jobs.Strategy;
+                // Set back by the mod, or picked by the player (whose choice then wins over a pending restore).
+                strategyRestores.Remove(city.Guid);
+                if (restored)
+                {
+                    lastJobChange[city.Guid] = $"job strategy set back to {Names.Strategy(city.Jobs.Strategy)} after the game reset it";
+                }
                 if (Plugin.LogDecisions.Value)
                 {
-                    Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: job strategy changed and the game placed its populations again; optimizing them for the new strategy.");
+                    Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: "
+                        + (restored ? $"job strategy set back to {Names.Strategy(city.Jobs.Strategy)}" : "job strategy changed")
+                        + " and the game placed its populations again; optimizing them for it.");
                 }
+            }
+        }
+
+        // The game placed all of a city's populations again (a strategy picked, or set back): this turn's job moves there
+        // no longer stand, and the mod starts over in that city.
+        private void StartCityOver(CityState city)
+        {
+            foreach (JobCategory job in city.Jobs.Categories)
+            {
+                foreach (JobPop pop in job.Pops)
+                {
+                    frozenPops.Remove(pop.Guid);
+                }
+            }
+            swapsThisTurn.Remove(city.Guid);
+            jobPlans.Remove(city.Guid);
+            jobCheckedAt.Remove(city.Guid);
+            jobTurnBase.Remove(city.Guid);
+            jobTurnDelta.Remove(city.Guid);
+            lastJobChange.Remove(city.Guid);
+            jobNotes.Remove(city.Guid);
+        }
+
+        // Sets back the strategies the game reset, with the game's own order (the one the city screen sends), so the game
+        // places the city's populations again as when the player picks it. Not in a city the player turned off (or its
+        // jobs), and not while the player's own job moves there hold (next turn then). The game refuses the order if
+        // the strategy is no longer allowed for the empire.
+        private void RestoreStrategies()
+        {
+            if (strategyRestores.Count == 0)
+            {
+                return;
+            }
+            float now = Time.unscaledTime;
+            foreach (KeyValuePair<ulong, PendingOrder> pair in strategyRestores.ToList())
+            {
+                CityState city = State.FindCity(pair.Key);
+                CitySettings settings = Settings.GetCity(pair.Key);
+                if (city?.Jobs == null || (settings != null && (settings.Off || settings.JobsOff)) || !Plugin.RestoreStrategies.Value)
+                {
+                    // Switched off since: the player picks it again.
+                    strategyRestores.Remove(pair.Key);
+                    if (city?.Jobs != null && city.Jobs.Strategy != pair.Value.Pop)
+                    {
+                        strategyNotes[pair.Key] = $"The game reset this city's job strategy from {Names.Strategy(pair.Value.Pop)} to {Names.Strategy(city.Jobs.Strategy)}: "
+                            + "pick it again in the city screen if you want it back.";
+                    }
+                    continue;
+                }
+                PendingOrder order = pair.Value;
+                if (city.Jobs.Strategy == order.Pop)
+                {
+                    // Not reset yet in this state (taken before the reset), or back already: NoticeStrategyChanges
+                    // usually sees it come back; this only ends what it can't see (a change that came and went between two
+                    // states), once a state taken since then would have shown it.
+                    if (now - order.Time >= (order.Attempts == 0 ? 10f : OrderRetrySeconds))
+                    {
+                        strategyRestores.Remove(pair.Key);
+                        strategyNotes.Remove(pair.Key);
+                        strategyResets.Remove(pair.Key);
+                    }
+                    continue;
+                }
+                if (jobsHeld.Contains(pair.Key) || (order.Attempts > 0 && now - order.Time < OrderRetrySeconds))
+                {
+                    continue;
+                }
+                if (order.Attempts >= MaxOrderAttempts)
+                {
+                    strategyRestores.Remove(pair.Key);
+                    strategyNotes[pair.Key] = $"The game reset this city's job strategy to {Names.Strategy(city.Jobs.Strategy)} and refused to take {Names.Strategy(order.Pop)} back: pick a strategy in the city screen.";
+                    Plugin.Log.LogWarning($"Turn {State.Turn}: {Names.City(city)}: the game did not take back {Names.Strategy(order.Pop)} as its job strategy; pick it again in the city screen.");
+                    continue;
+                }
+                order.Attempts++;
+                order.Time = now;
+                SandboxManager.PostOrder(new OrderChangePopulationAssignementStrategy(pair.Key, new StaticString(order.Pop)));
+                StateCapture.RequestRefresh();
+                // The game places the city's populations again right away, whether or not the next state shows the reset.
+                StartCityOver(city);
             }
         }
 
@@ -927,9 +1017,9 @@ namespace PopulationPlanner
             }
         }
 
-        // The game reset a city's job strategy to Balanced on its own (see StrategyResetPatch): say so in the log and the
-        // Cities tab until the player picks a strategy again. Cities the mod hasn't seen yet just joined the empire, and
-        // a new city always starts at Balanced: nothing to say.
+        // The game reset a city's job strategy to Balanced on its own (see StrategyResetPatch): the mod sets it back (or,
+        // if it may not, says so in the Cities tab until the player picks a strategy again), and logs it. Cities the mod
+        // hasn't seen yet just joined the empire, and a new city always starts at Balanced: nothing to say.
         private void DrainStrategyResets()
         {
             while (StrategyResetPatch.Resets.TryDequeue(out StrategyReset reset))
@@ -942,10 +1032,17 @@ namespace PopulationPlanner
                 strategyResets[reset.City] = State.Turn;
                 string from = Names.Strategy(reset.From);
                 string to = Names.Strategy(reset.To);
+                CitySettings settings = Settings.GetCity(reset.City);
+                bool restore = Plugin.RestoreStrategies.Value && Plugin.Automation.Value && (settings == null || (!settings.Off && !settings.JobsOff));
+                if (restore)
+                {
+                    strategyRestores[reset.City] = new PendingOrder { Pop = reset.From, Time = Time.unscaledTime };
+                }
                 strategyNotes[reset.City] = $"The game reset this city's job strategy from {from} to {to} on turn {State.Turn} (it does that to every city when your "
-                    + "empire gains or loses a special ability): pick it again in the city screen if you want it back.";
-                Plugin.Log.LogWarning($"Turn {State.Turn}: {Names.City(city)}: the game reset its job strategy from {from} to {to} without placing its "
-                    + "populations again (a game bug: it does that to every city when your empire gains or loses a special ability); pick it again in the city screen if you want it back.");
+                    + "empire gains or loses a special ability): " + (restore ? $"setting it back to {from}." : "pick it again in the city screen if you want it back.");
+                Plugin.Log.LogWarning($"Turn {State.Turn}: {Names.City(city)}: the game reset its job strategy from {from} to {to} without placing its populations again "
+                    + "(a game bug: it does that to every city when your empire gains or loses a special ability); "
+                    + (restore ? $"setting it back to {from}." : "pick it again in the city screen if you want it back."));
             }
         }
 

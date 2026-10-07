@@ -69,8 +69,9 @@ new strategy in the same turn. Likewise, when a construction finishes during you
 changes a city's job slots or yields per population, the mod sorts out that city's jobs again right away, populations
 it already moved that turn included.
 
-Note that the game itself resets every city's job strategy to Balanced whenever your empire gains or loses a special
-ability (a game bug). The mod points it out in the Cities tab and the log, so you can pick your strategy again.
+The game itself resets every city's job strategy to Balanced whenever your empire gains or loses a special ability
+(a game bug). The mod sets back the strategy you picked, with the game's own order (so, as when you pick one, the
+game places the city's populations again), and says so in the log. Switch it off in Settings to only be told.
 
 ### Minimum approval (optional)
 
@@ -150,6 +151,7 @@ per-city choices are saved per game in `BepInEx/config/PopulationPlanner/<game i
 | Jobs / OptimizeJobs | true | Swap populations between jobs, and move them into free slots where their own bonus applies. |
 | Jobs / MinimumGain | 0.5 | Smallest gain worth a swap or move (yields weighted by the city's job strategy). |
 | Jobs / MaxChangesPerCityPerTurn | 0 | Most job changes per city per turn; 0 = no limit. |
+| Jobs / RestoreStrategyAfterGameReset | true | Set a city's job strategy back after the game resets it to Balanced. |
 | Approval / MinimumLevel | Off | Off, Content, Happy or Jubilant. |
 | Approval / Buffer | 3 | Act this many points above the level. |
 | Approval / OnlyWhenItPays | true | Chase Happy and Jubilant only when their bonus beats the job moves they take (Content is always kept). |
