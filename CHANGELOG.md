@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0 — 2026-10-07
+
+- New job slots are used right away. The game only fills new slots (a construction finishing, also when you buy it
+  out) with new and Destitute populations; those already at work stay where they are, so for example an Industrial
+  city's three new Artisan slots stayed empty until it grew, unless you switched its job strategy back and forth.
+  Now, when a city gets new slots, the mod has the game place its populations again by its job strategy (the game's
+  own order, as when you pick a strategy), then optimizes them. At most three times a city per turn, never while your
+  own job moves there hold, and not in a city whose jobs you turned off. Off with Jobs / PlaceAgainOnNewSlots, also
+  in Settings.
+
 ## 1.3.3 — 2026-10-07
 
 - Fixed: a city growing for approval judged each population by the job where its approval would be highest, but the

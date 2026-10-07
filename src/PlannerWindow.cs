@@ -878,6 +878,9 @@ namespace PopulationPlanner
                 Defer(() => Plugin.MaxJobChanges.Value = next);
             }
             GUILayout.EndHorizontal();
+            Toggle(Plugin.PlaceAgainOnNewSlots, "Use new job slots right away",
+                "When a city gets new job slots (a construction finishes, also when you buy it out), the game places its populations again by the "
+                + "city's job strategy, as when you pick one, and the mod optimizes them. The game itself only fills new slots with new and Destitute populations.");
             Toggle(Plugin.RestoreStrategies, "Set job strategies back after the game resets them",
                 "The game resets every city's job strategy to Balanced whenever your empire gains or loses a special ability (a game bug). "
                 + "This sets back the strategy you picked; as when you pick one, the game then places the city's populations again.");

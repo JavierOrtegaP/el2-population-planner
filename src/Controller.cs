@@ -75,6 +75,12 @@ namespace PopulationPlanner
         private readonly HashSet<string> layoutsSeen = new HashSet<string>(StringComparer.Ordinal);
         private int layoutTurn = -1;
         private int layoutCheckedVersion = -1;
+        // Each city's jobs when last seen, across turns, to notice new slots; cities whose populations the game is to
+        // place again for them (what changed), and how often that was done this turn.
+        private readonly Dictionary<ulong, JobState> slotJobs = new Dictionary<ulong, JobState>();
+        private readonly Dictionary<ulong, string> placeAgain = new Dictionary<ulong, string>();
+        private readonly Dictionary<ulong, int> placedAgainThisTurn = new Dictionary<ulong, int>();
+        private int slotCheckedVersion = -1;
         // "city|pop" -> first turn that population may be picked again in that city.
         private readonly Dictionary<string, int> blockedUntil = new Dictionary<string, int>(StringComparer.Ordinal);
         private string gameId;
@@ -144,6 +150,7 @@ namespace PopulationPlanner
                 StartJobTurn();
             }
             NoticeStrategyChanges();
+            NoticeNewSlots();
             NoticeLayoutChanges();
             if (State.Version != plannedVersion || Revision != plannedRevision)
             {
@@ -152,6 +159,7 @@ namespace PopulationPlanner
             if (Plugin.Automation.Value && State.CanAct && State.IsHuman)
             {
                 RestoreStrategies();
+                PlaceAgain();
                 ApplyOrders();
                 if (Plugin.OptimizeJobs.Value)
                 {
@@ -486,6 +494,10 @@ namespace PopulationPlanner
             layoutsSeen.Clear();
             layoutTurn = -1;
             layoutCheckedVersion = -1;
+            slotJobs.Clear();
+            placeAgain.Clear();
+            placedAgainThisTurn.Clear();
+            slotCheckedVersion = -1;
             loggedJobNotes.Clear();
             loggedLevelNotes.Clear();
             levelChoices.Clear();
@@ -612,6 +624,7 @@ namespace PopulationPlanner
             jobCheckedAt.Clear();
             jobTurnBase.Clear();
             jobTurnDelta.Clear();
+            placedAgainThisTurn.Clear();
         }
 
         // The player changed a city's job strategy: the game has just placed all its populations again by its own rules, so
@@ -751,6 +764,67 @@ namespace PopulationPlanner
             }
         }
 
+        // New job slots in a city (a construction finished, also bought out or at the end of a turn): the game only puts new
+        // and Destitute populations in them, and leaves those at work where they are, so for example an Industrial city's
+        // new Artisan slots stay empty until it grows. As when the player picks a strategy again, the game's own "optimize"
+        // order places them all again by the city's job strategy; the mod then optimizes them (PlaceAgain).
+        private void NoticeNewSlots()
+        {
+            if (slotCheckedVersion == State.Version)
+            {
+                return;
+            }
+            slotCheckedVersion = State.Version;
+            foreach (CityState city in State.Cities)
+            {
+                if (city.Jobs == null)
+                {
+                    continue;
+                }
+                bool seen = slotJobs.TryGetValue(city.Guid, out JobState before);
+                slotJobs[city.Guid] = city.Jobs;
+                CitySettings settings = Settings.GetCity(city.Guid);
+                if (!seen || !Plugin.PlaceAgainOnNewSlots.Value || !Plugin.OptimizeJobs.Value || (settings != null && (settings.Off || settings.JobsOff))
+                    || !city.Jobs.Categories.Any(job => job.Slots > (before.Find(job.Guid)?.Slots ?? 0)))
+                {
+                    continue;
+                }
+                placeAgain[city.Guid] = JobOptimizer.LayoutChanges(before, city.Jobs, Names.Job);
+            }
+        }
+
+        // Has the game place the populations of cities with new slots again (see NoticeNewSlots), at most 3 times a city a
+        // turn. Not while the player's own job moves there hold: next turn then.
+        private void PlaceAgain()
+        {
+            foreach (KeyValuePair<ulong, string> pair in placeAgain.ToList())
+            {
+                CityState city = State.FindCity(pair.Key);
+                CitySettings settings = Settings.GetCity(pair.Key);
+                if (city?.Jobs == null || !Plugin.PlaceAgainOnNewSlots.Value || !Plugin.OptimizeJobs.Value || (settings != null && (settings.Off || settings.JobsOff))
+                    || (placedAgainThisTurn.TryGetValue(pair.Key, out int times) && times >= 3))
+                {
+                    placeAgain.Remove(pair.Key);
+                    continue;
+                }
+                if (jobsHeld.Contains(pair.Key) || !city.Jobs.CanReassign)
+                {
+                    continue;
+                }
+                placeAgain.Remove(pair.Key);
+                placedAgainThisTurn[pair.Key] = times + 1;
+                SandboxManager.PostOrder(new OrderOptimizePopulationAssignement { SettlementGUID = pair.Key });
+                StateCapture.RequestRefresh();
+                StartCityOver(city);
+                lastJobChange[city.Guid] = $"placed again by its job strategy for its new slots ({pair.Value})";
+                if (Plugin.LogDecisions.Value)
+                {
+                    Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: new job slots ({pair.Value}); the game places its populations again by its job strategy "
+                        + $"({Names.Strategy(city.Jobs.Strategy)}), as when you pick one, and the mod optimizes them for it.");
+                }
+            }
+        }
+
         // A city's job slots or yields per population changed during the turn: a construction finished (e.g. bought out;
         // Communal Habitations adds a slot to each job), an improvement, a governor... Who should work where may be
         // different now, so the mod sorts out that city's jobs again in the same turn: populations it already moved may
@@ -794,7 +868,8 @@ namespace PopulationPlanner
                 CitySettings settings = Settings.GetCity(city.Guid);
                 bool managed = Plugin.Automation.Value && Plugin.OptimizeJobs.Value && State.CanAct && !jobsHeld.Contains(city.Guid)
                     && (settings == null || (!settings.Off && !settings.JobsOff));
-                if (managed && Plugin.LogDecisions.Value)
+                // New slots: PlaceAgain says what changed when the game places the populations again.
+                if (managed && Plugin.LogDecisions.Value && !placeAgain.ContainsKey(city.Guid))
                 {
                     Plugin.Log.LogInfo($"Turn {State.Turn}: {Names.City(city)}: its jobs changed ({JobOptimizer.LayoutChanges(before.Jobs, city.Jobs, Names.Job)}); sorting them out again.");
                 }

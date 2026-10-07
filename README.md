@@ -65,9 +65,12 @@ city settles within the turn (you can also cap the changes per city per turn). S
 that adds job slots) are never moved.
 
 Changing a city's job strategy makes the game place all its populations again; the mod then optimizes them for the
-new strategy in the same turn. Likewise, when a construction finishes during your turn (e.g. one you buy out) and
-changes a city's job slots or yields per population, the mod sorts out that city's jobs again right away, populations
-it already moved that turn included.
+new strategy in the same turn. New job slots, though (a construction finishing, also when you buy it out), are only
+filled by the game with new and Destitute populations: those at work stay where they are, so an Industrial city's
+new Artisan slots stay empty until it grows. So when a city gets new slots, the mod has the game place its
+populations again by its job strategy, as when you pick one, and then optimizes them. When only the yields per
+population change, the mod sorts out that city's jobs again right away, populations it already moved that turn
+included.
 
 The game itself resets every city's job strategy to Balanced whenever your empire gains or loses a special ability
 (a game bug). The mod sets back the strategy you picked, with the game's own order (so, as when you pick one, the
@@ -152,6 +155,7 @@ per-city choices are saved per game in `BepInEx/config/PopulationPlanner/<game i
 | Jobs / OptimizeJobs | true | Swap populations between jobs, and move them into free slots where their own bonus applies. |
 | Jobs / MinimumGain | 0.5 | Smallest gain worth a swap or move (yields weighted by the city's job strategy). |
 | Jobs / MaxChangesPerCityPerTurn | 0 | Most job changes per city per turn; 0 = no limit. |
+| Jobs / PlaceAgainOnNewSlots | true | When a city gets new job slots, have the game place its populations again by its job strategy. |
 | Jobs / RestoreStrategyAfterGameReset | true | Set a city's job strategy back after the game resets it to Balanced. |
 | Approval / MinimumLevel | Off | Off, Content, Happy or Jubilant. |
 | Approval / Buffer | 3 | Act this many points above the level. |
