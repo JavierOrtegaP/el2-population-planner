@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.1 — 2026-10-08
+
+- No more cap of three on placing a city's populations again for new slots in one turn: every construction that adds
+  slots counts, however many you buy. What it guarded against (slots going back and forth when the game moves
+  populations that add slots to their job) is now caught directly: a slot count the city already had that turn
+  doesn't count again.
+
 ## 1.4.0 — 2026-10-07
 
 - New job slots are used right away. The game only fills new slots (a construction finishing, also when you buy it

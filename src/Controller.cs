@@ -76,10 +76,10 @@ namespace PopulationPlanner
         private int layoutTurn = -1;
         private int layoutCheckedVersion = -1;
         // Each city's jobs when last seen, across turns, to notice new slots; cities whose populations the game is to
-        // place again for them (what changed), and how often that was done this turn.
+        // place again for them (what changed), and each city's slot counts already seen this turn.
         private readonly Dictionary<ulong, JobState> slotJobs = new Dictionary<ulong, JobState>();
         private readonly Dictionary<ulong, string> placeAgain = new Dictionary<ulong, string>();
-        private readonly Dictionary<ulong, int> placedAgainThisTurn = new Dictionary<ulong, int>();
+        private readonly HashSet<string> slotLayoutsSeen = new HashSet<string>(StringComparer.Ordinal);
         private int slotCheckedVersion = -1;
         // "city|pop" -> first turn that population may be picked again in that city.
         private readonly Dictionary<string, int> blockedUntil = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -496,7 +496,7 @@ namespace PopulationPlanner
             layoutCheckedVersion = -1;
             slotJobs.Clear();
             placeAgain.Clear();
-            placedAgainThisTurn.Clear();
+            slotLayoutsSeen.Clear();
             slotCheckedVersion = -1;
             loggedJobNotes.Clear();
             loggedLevelNotes.Clear();
@@ -624,7 +624,7 @@ namespace PopulationPlanner
             jobCheckedAt.Clear();
             jobTurnBase.Clear();
             jobTurnDelta.Clear();
-            placedAgainThisTurn.Clear();
+            slotLayoutsSeen.Clear();
         }
 
         // The player changed a city's job strategy: the game has just placed all its populations again by its own rules, so
@@ -783,8 +783,12 @@ namespace PopulationPlanner
                 }
                 bool seen = slotJobs.TryGetValue(city.Guid, out JobState before);
                 slotJobs[city.Guid] = city.Jobs;
+                // A slot count the city already had this turn doesn't count again: placing the populations again can move
+                // ones that add slots to their job (Severed Claws), and slots going back and forth must not loop. New
+                // constructions only ever add slots, so each one is a new count.
+                bool fresh = slotLayoutsSeen.Add(city.Guid + "|" + string.Join(",", city.Jobs.Categories.Select(job => job.Guid + ":" + job.Slots).ToArray()));
                 CitySettings settings = Settings.GetCity(city.Guid);
-                if (!seen || !Plugin.PlaceAgainOnNewSlots.Value || !Plugin.OptimizeJobs.Value || (settings != null && (settings.Off || settings.JobsOff))
+                if (!seen || !fresh || !Plugin.PlaceAgainOnNewSlots.Value || !Plugin.OptimizeJobs.Value || (settings != null && (settings.Off || settings.JobsOff))
                     || !city.Jobs.Categories.Any(job => job.Slots > (before.Find(job.Guid)?.Slots ?? 0)))
                 {
                     continue;
@@ -793,16 +797,15 @@ namespace PopulationPlanner
             }
         }
 
-        // Has the game place the populations of cities with new slots again (see NoticeNewSlots), at most 3 times a city a
-        // turn. Not while the player's own job moves there hold: next turn then.
+        // Has the game place the populations of cities with new slots again (see NoticeNewSlots). Not while the player's own
+        // job moves there hold: next turn then.
         private void PlaceAgain()
         {
             foreach (KeyValuePair<ulong, string> pair in placeAgain.ToList())
             {
                 CityState city = State.FindCity(pair.Key);
                 CitySettings settings = Settings.GetCity(pair.Key);
-                if (city?.Jobs == null || !Plugin.PlaceAgainOnNewSlots.Value || !Plugin.OptimizeJobs.Value || (settings != null && (settings.Off || settings.JobsOff))
-                    || (placedAgainThisTurn.TryGetValue(pair.Key, out int times) && times >= 3))
+                if (city?.Jobs == null || !Plugin.PlaceAgainOnNewSlots.Value || !Plugin.OptimizeJobs.Value || (settings != null && (settings.Off || settings.JobsOff)))
                 {
                     placeAgain.Remove(pair.Key);
                     continue;
@@ -812,7 +815,6 @@ namespace PopulationPlanner
                     continue;
                 }
                 placeAgain.Remove(pair.Key);
-                placedAgainThisTurn[pair.Key] = times + 1;
                 SandboxManager.PostOrder(new OrderOptimizePopulationAssignement { SettlementGUID = pair.Key });
                 StateCapture.RequestRefresh();
                 StartCityOver(city);
