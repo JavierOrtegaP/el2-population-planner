@@ -21,6 +21,8 @@ namespace PopulationPlanner
         // Mod Menu, a separate optional mod: when installed it takes the key and shows this window's content as one of
         // its pages (Plugin.ModMenuDraw). Without it, nothing changes.
         private const string MenuGuid = "el2.modmenu";
+        // How long the "how to open this" hint stays up on a new game: long enough to read, short enough not to linger.
+        private const float HintSeconds = 15f;
 
         private readonly Controller controller;
         // Clicks only queue their effect; it runs in the next Update. Changing what the window draws in the middle of
@@ -118,7 +120,7 @@ namespace PopulationPlanner
             if (controller.InGame && controller.IsNewGame && !hintShown)
             {
                 hintShown = true;
-                hintUntil = Time.unscaledTime + 15f;
+                hintUntil = Time.unscaledTime + HintSeconds;
             }
             MouseOver = visible && controller.InGame && IsMouseInside();
         }

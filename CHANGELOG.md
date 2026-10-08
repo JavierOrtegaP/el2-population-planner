@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.2 — 2026-10-08
+
+- Job changes that cost food now count the city's real food bonuses, read from the game (approval level, collection
+  bonuses...), instead of a fixed x1.25: a job's -4 Food is -6.5 in a city whose food is multiplied by 1.64. In the game
+  this was checked in, cities multiplied their food by 1.36 to 1.64, so a swap could still make a city starve.
+- Below the minimum approval, the job moves that give the most approval for the least yield come first (one costing
+  nothing before any other), instead of approval simply weighing ten times more.
+- No more fixed retry timers on the game's orders (3 seconds, 3 tries). The mod waits for the game's answer to each:
+  - an order the game refuses is not sent again that turn;
+  - one it doesn't accept at that moment of the turn is sent again once the game moves on;
+  - one carried out but undone since is left for the turn.
+- The game state is read whenever the simulation moves on, instead of every quarter second, and settings are saved
+  on the next frame instead of 1.5 seconds later.
+
 ## 1.4.1 — 2026-10-08
 
 - No more cap of three on placing a city's populations again for new slots in one turn: every construction that adds

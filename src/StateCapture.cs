@@ -16,13 +16,13 @@ using Descriptor = Amplitude.Framework.Simulation.Description.Descriptor;
 namespace PopulationPlanner
 {
     // Reads the simulation on the sandbox thread, right after the game copies it for its own UI (Snapshots.Synchronize
-    // runs there every 100 ms, while the simulation is idle), and hands the main thread an immutable GameState.
+    // runs there while the simulation is idle), and hands the main thread an immutable GameState. Only when the
+    // simulation moved on since the last read (its frame counter goes up whenever it processed something), or when asked.
     [HarmonyPatch(typeof(Snapshots), nameof(Snapshots.Synchronize))]
     internal static class StateCapture
     {
-        private const long IntervalMs = 250;
-
-        private static readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
+        private static int lastFrame = -1;
+        private static Sandbox lastSandbox;
         // Whether a population's last bonus only applies where it is present: static game data, so cached by name.
         private static readonly Dictionary<string, bool> PresenceCache = new Dictionary<string, bool>(StringComparer.Ordinal);
         private static readonly Dictionary<string, float> ApprovalLevelCache = new Dictionary<string, float>(StringComparer.Ordinal);
@@ -31,7 +31,6 @@ namespace PopulationPlanner
         private static string catalogGame;
         private static int catalogTurn;
         private static bool catalogFailed;
-        private static long nextCaptureMs;
         private static long lastSignature;
         private static int version;
         private static GameState latest;
@@ -39,7 +38,7 @@ namespace PopulationPlanner
 
         internal static GameState Latest => Volatile.Read(ref latest);
 
-        // Capture on the next sync instead of waiting for the interval (after posting orders, a failed growth...).
+        // Capture on the next sync even if the frame counter hasn't moved yet (after posting orders, a failed growth...).
         internal static void RequestRefresh() => refreshRequested = true;
 
         [HarmonyPostfix]
@@ -61,19 +60,19 @@ namespace PopulationPlanner
 
         private static void Capture()
         {
-            long now = Clock.ElapsedMilliseconds;
-            if (!refreshRequested && now < nextCaptureMs)
-            {
-                return;
-            }
-            refreshRequested = false;
-            nextCaptureMs = now + IntervalMs;
-
             Sandbox sandbox = SandboxManager.Sandbox;
             if (sandbox == null || !sandbox.IsInitialized)
             {
                 return;
             }
+            int frame = Sandbox.Frame;
+            if (!refreshRequested && frame == lastFrame && ReferenceEquals(sandbox, lastSandbox))
+            {
+                return;
+            }
+            refreshRequested = false;
+            lastFrame = frame;
+            lastSandbox = sandbox;
             int empireIndex = sandbox.LocalEmpireIndex;
             MajorEmpire[] empires = Sandbox.MajorEmpires;
             if (empires == null || empireIndex < 0 || empireIndex >= empires.Length || ReferenceEquals(empires[empireIndex], null))
@@ -113,6 +112,7 @@ namespace PopulationPlanner
                     ApprovalLevel = ReferenceEquals(settlement.SettlementApprovalDefinition, null) ? string.Empty : settlement.SettlementApprovalDefinition.Name.ToString(),
                     FoodGain = (float)settlement.FoodGain.Value,
                     IndustryGain = (float)settlement.IndustryGain.Value,
+                    FoodMultiplier = ChainMultiplier(settlement, settlement.FoodGain.GlobalPropertyIndex, settlement.FoodNet.GlobalPropertyIndex),
                 };
                 AddCounts(settlement.AssignedPopulations, city.Counts, definitions);
                 AddCounts(settlement.OverPopulations, city.Counts, definitions);
@@ -217,6 +217,61 @@ namespace PopulationPlanner
             lastSignature = signature;
             state.Version = ++version;
             Volatile.Write(ref latest, state);
+        }
+
+        // How much the game multiplies what is added to a chain of properties, each feeding the next (FoodGain feeds
+        // FoodNet), read from the entity's own modifiers on them (one pass: a city has thousands): for each, 1 plus its
+        // percent bonuses (the game adds them up, each on the value before the first) times its multipliers. For a
+        // city's food: the approval level, collection bonuses, improvements... whatever applies there.
+        private static float ChainMultiplier(BaseSimulationEntity entity, params int[] globalPropertyIndexes)
+        {
+            int count = globalPropertyIndexes.Length;
+            var local = new int[count];
+            var percent = new float[count];
+            var factor = new float[count];
+            for (int k = 0; k < count; k++)
+            {
+                local[k] = -1;
+                factor[k] = 1f;
+            }
+            var properties = entity.Properties;
+            for (int i = 0; properties != null && i < properties.Length; i++)
+            {
+                int k = Array.IndexOf(globalPropertyIndexes, properties[i].GlobalPropertyIndex);
+                if (k >= 0)
+                {
+                    local[k] = i;
+                }
+            }
+            float one = FixedPoint.One.Raw;
+            for (int i = 0; entity.Modifiers.Data != null && i < entity.Modifiers.DataCount; i++)
+            {
+                ref var modifier = ref entity.Modifiers.Data[i];
+                int k = modifier.IsValid && modifier.LocalPropertyIndex >= 0 ? Array.IndexOf(local, modifier.LocalPropertyIndex) : -1;
+                if (k < 0)
+                {
+                    continue;
+                }
+                float value = modifier.LastComputedValue / one;
+                switch (modifier.PropertyEffect.ToTargetOperation)
+                {
+                    case Operation.Percent:
+                        percent[k] += value;
+                        break;
+                    case Operation.Mult:
+                        factor[k] *= value;
+                        break;
+                    case Operation.Div:
+                        factor[k] = value != 0f ? factor[k] / value : factor[k];
+                        break;
+                }
+            }
+            float result = 1f;
+            for (int k = 0; k < count; k++)
+            {
+                result *= (1f + percent[k]) * factor[k];
+            }
+            return result;
         }
 
         private static void AddCounts(ReferenceCollection<Population> populations, Dictionary<string, int> counts, Dictionary<string, PopulationDefinition> definitions)
@@ -487,7 +542,7 @@ namespace PopulationPlanner
                         Mix(city.Jobs.CanReassign ? 1 : 0);
                         foreach (float weight in city.Jobs.Weights)
                         {
-                            Mix((long)(weight * 1000f));
+                            Mix(weight.GetHashCode());
                         }
                         foreach (JobCategory job in city.Jobs.Categories)
                         {
@@ -495,7 +550,7 @@ namespace PopulationPlanner
                             Mix(job.Slots);
                             foreach (float value in job.Base)
                             {
-                                Mix((long)System.Math.Round(value * 100f));
+                                Mix(value.GetHashCode());
                             }
                             foreach (JobPop pop in job.Pops)
                             {

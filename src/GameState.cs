@@ -70,6 +70,9 @@ namespace PopulationPlanner
         // The city's Food and Industry gain per turn (before what it consumes), which approval levels raise by a percentage.
         public float FoodGain;
         public float IndustryGain;
+        // How much the game multiplies flat food here, a population's included (percent bonuses and multipliers on the
+        // city's FoodGain and FoodNet): what a job change's food really adds or costs per unit of the jobs' own food.
+        public float FoodMultiplier = 1f;
 
         public bool IsGrowing => FoodNet > 0f && !float.IsInfinity(TurnsToGrowth);
 

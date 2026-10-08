@@ -18,24 +18,20 @@ namespace PopulationPlanner
     {
         internal static Controller Instance;
 
-        // How long to wait for the game to apply an order before sending it again, and how many times.
-        private const float OrderRetrySeconds = 3f;
-        private const int MaxOrderAttempts = 3;
-
+        // What the mod wants for a city (a population to grow, a strategy to set back), the order sent for it (null until
+        // sent), and the state version when the wish was made.
         private sealed class PendingOrder
         {
             public string Pop;
-            public float Time;
-            public int Attempts;
+            public GameOrder Order;
+            public int Version;
         }
-
 
         private sealed class JobPlan
         {
             public JobSwap Swap;
             public int Step = 1;
-            public float Time;
-            public int Attempts;
+            public GameOrder Order;
         }
 
         private readonly Dictionary<ulong, PendingOrder> pending = new Dictionary<ulong, PendingOrder>();
@@ -51,10 +47,10 @@ namespace PopulationPlanner
         // every turn.
         private readonly Dictionary<ulong, string> loggedJobNotes = new Dictionary<ulong, string>();
         // Each city's approval level choice and what it was worked out from.
-        private readonly Dictionary<ulong, ((int, int, long, int, string) Key, LevelChoice Choice)> levelChoices = new Dictionary<ulong, ((int, int, long, int, string) Key, LevelChoice Choice)>();
+        private readonly Dictionary<ulong, ((int, int, float, int, string) Key, LevelChoice Choice)> levelChoices = new Dictionary<ulong, ((int, int, float, int, string) Key, LevelChoice Choice)>();
         private readonly Dictionary<ulong, string> loggedLevelNotes = new Dictionary<ulong, string>();
         private readonly HashSet<string> loggedFailures = new HashSet<string>(StringComparer.Ordinal);
-        private readonly Dictionary<ulong, long> jobCheckedAt = new Dictionary<ulong, long>();
+        private readonly Dictionary<ulong, (int, int, float)> jobCheckedAt = new Dictionary<ulong, (int, int, float)>();
         // Approval and food when the mod first changed a city's jobs this turn, and what its changes added since: the
         // game may only update those values at the end of the turn, and the mod must not count the same gain twice.
         private readonly Dictionary<ulong, float[]> jobTurnBase = new Dictionary<ulong, float[]>();
@@ -87,7 +83,7 @@ namespace PopulationPlanner
         private object sandbox;
         private int plannedVersion = -1;
         private int plannedRevision = -1;
-        private float saveAt = -1f;
+        private bool saveWanted;
         private bool summaryLogged;
 
         public Controller()
@@ -166,7 +162,7 @@ namespace PopulationPlanner
                     OptimizeJobs();
                 }
             }
-            if (saveAt >= 0f && Time.unscaledTime >= saveAt)
+            if (saveWanted)
             {
                 SaveNow();
             }
@@ -311,13 +307,13 @@ namespace PopulationPlanner
                 return new LevelChoice { Level = ApprovalRule.Normalize(wanted) };
             }
             float approval = ApprovalOf(city);
-            var key = (State.Version, Revision, (long)Math.Round(approval * 10f), frozenPops.Count, wanted);
+            var key = (State.Version, Revision, approval, frozenPops.Count, wanted);
             if (levelChoices.TryGetValue(city.Guid, out var cached) && cached.Key.Equals(key))
             {
                 return cached.Choice;
             }
             LevelChoice choice = ApprovalMath.Choose(State, city, wanted, Plugin.ApprovalBuffer.Value, approval, FoodOf(city),
-                Mathf.Max(0.1f, Plugin.JobMinGain.Value), frozenPops.Contains);
+                Plugin.JobMinGain.Value, frozenPops.Contains);
             levelChoices[city.Guid] = (key, choice);
             // Logged when the decision changes (the level held and why), not again every turn.
             string explained = ApprovalMath.Explain(choice);
@@ -434,7 +430,7 @@ namespace PopulationPlanner
 
         public void SaveNow()
         {
-            saveAt = -1f;
+            saveWanted = false;
             if (Settings == null || string.IsNullOrEmpty(gameId))
             {
                 return;
@@ -549,7 +545,7 @@ namespace PopulationPlanner
                     CitySettings settings = Settings.GetCity(city.Guid);
                     return Plugin.OptimizeJobs.Value && (settings == null || (!settings.Off && !settings.JobsOff));
                 },
-                JobMinGain = Mathf.Max(0.1f, Plugin.JobMinGain.Value),
+                JobMinGain = Plugin.JobMinGain.Value,
             };
             Plan = Planner.Plan(State, Settings, options);
             plannedVersion = State.Version;
@@ -558,7 +554,6 @@ namespace PopulationPlanner
 
         private void ApplyOrders()
         {
-            float now = Time.unscaledTime;
             foreach (CityPlan plan in Plan.Cities.Values)
             {
                 if (plan.Pop == null)
@@ -577,28 +572,22 @@ namespace PopulationPlanner
                 }
                 if (pending.TryGetValue(plan.Guid, out PendingOrder order) && order.Pop == plan.Pop)
                 {
-                    if (now - order.Time < OrderRetrySeconds)
+                    PostOrderResponse answer = order.Order.Check(State.Version);
+                    if (answer == PostOrderResponse.Undefined || (answer == PostOrderResponse.Valid && !order.Order.SeenSince(State.Version)))
                     {
+                        // No answer yet, or a state taken after it is still to come.
                         continue;
                     }
-                    if (order.Attempts >= MaxOrderAttempts)
-                    {
-                        // The game keeps refusing this pick: leave this population out in this city for the turn.
-                        pending.Remove(plan.Guid);
-                        Block(plan.Guid, plan.Pop, State.Turn + 1);
-                        Plugin.Log.LogWarning($"Turn {State.Turn}: the game refused {Names.Pop(plan.Pop)} for {Names.City(city)} {order.Attempts} times; trying something else there this turn.");
-                        continue;
-                    }
+                    // Refused, or carried out and changed back since: leave this population out in this city this turn.
+                    pending.Remove(plan.Guid);
+                    Block(plan.Guid, plan.Pop, State.Turn + 1);
+                    Plugin.Log.LogWarning($"Turn {State.Turn}: the game " + (answer == PostOrderResponse.Valid ? "changed back" : "refused")
+                        + $" {Names.Pop(plan.Pop)} as {Names.City(city)}'s next population; trying something else there this turn.");
+                    continue;
                 }
-                else
-                {
-                    order = new PendingOrder { Pop = plan.Pop };
-                }
-                order.Time = now;
-                order.Attempts++;
-                pending[plan.Guid] = order;
-                SandboxManager.PostOrder(new OrderSelectGrowingPopulation(plan.Guid, new StaticString(plan.Pop)));
-                StateCapture.RequestRefresh();
+                string pop = plan.Pop;
+                ulong guid = plan.Guid;
+                pending[plan.Guid] = new PendingOrder { Pop = pop, Version = State.Version, Order = new GameOrder(() => new OrderSelectGrowingPopulation(guid, new StaticString(pop))) };
                 if (Plugin.LogDecisions.Value)
                 {
                     string why = Describe(plan.Kind) + (plan.Kind == PlanKind.Approval
@@ -714,7 +703,6 @@ namespace PopulationPlanner
             {
                 return;
             }
-            float now = Time.unscaledTime;
             foreach (KeyValuePair<ulong, PendingOrder> pair in strategyRestores.ToList())
             {
                 CityState city = State.FindCity(pair.Key);
@@ -731,12 +719,13 @@ namespace PopulationPlanner
                     continue;
                 }
                 PendingOrder order = pair.Value;
+                PostOrderResponse answer = order.Order?.Check(State.Version) ?? PostOrderResponse.Undefined;
                 if (city.Jobs.Strategy == order.Pop)
                 {
-                    // Not reset yet in this state (taken before the reset), or back already: NoticeStrategyChanges
-                    // usually sees it come back; this only ends what it can't see (a change that came and went between two
-                    // states), once a state taken since then would have shown it.
-                    if (now - order.Time >= (order.Attempts == 0 ? 10f : OrderRetrySeconds))
+                    // Back (NoticeStrategyChanges usually sees it first). Before the order, this state may predate the
+                    // reset: only one taken after the reset was noticed, still showing the old strategy, means it came
+                    // and went between two states.
+                    if (order.Order != null ? order.Order.SeenSince(State.Version) : State.Version > order.Version)
                     {
                         strategyRestores.Remove(pair.Key);
                         strategyNotes.Remove(pair.Key);
@@ -744,23 +733,31 @@ namespace PopulationPlanner
                     }
                     continue;
                 }
-                if (jobsHeld.Contains(pair.Key) || (order.Attempts > 0 && now - order.Time < OrderRetrySeconds))
+                if (order.Order == null)
                 {
+                    if (jobsHeld.Contains(pair.Key))
+                    {
+                        continue;
+                    }
+                    string strategy = order.Pop;
+                    ulong guid = pair.Key;
+                    order.Order = new GameOrder(() => new OrderChangePopulationAssignementStrategy(guid, new StaticString(strategy)));
+                    // The game places the city's populations again right away, whether or not the next state shows the reset.
+                    StartCityOver(city);
                     continue;
                 }
-                if (order.Attempts >= MaxOrderAttempts)
+                if (answer == PostOrderResponse.Invalid)
                 {
                     strategyRestores.Remove(pair.Key);
                     strategyNotes[pair.Key] = $"The game reset this city's job strategy to {Names.Strategy(city.Jobs.Strategy)} and refused to take {Names.Strategy(order.Pop)} back: pick a strategy in the city screen.";
                     Plugin.Log.LogWarning($"Turn {State.Turn}: {Names.City(city)}: the game did not take back {Names.Strategy(order.Pop)} as its job strategy; pick it again in the city screen.");
                     continue;
                 }
-                order.Attempts++;
-                order.Time = now;
-                SandboxManager.PostOrder(new OrderChangePopulationAssignementStrategy(pair.Key, new StaticString(order.Pop)));
-                StateCapture.RequestRefresh();
-                // The game places the city's populations again right away, whether or not the next state shows the reset.
-                StartCityOver(city);
+                if (answer == PostOrderResponse.Valid && order.Order.SeenSince(State.Version))
+                {
+                    // Carried out, and changed again since (another reset is noticed on its own): nothing more to do.
+                    strategyRestores.Remove(pair.Key);
+                }
             }
         }
 
@@ -939,8 +936,7 @@ namespace PopulationPlanner
         // population a full job sends out) are seen before the next one.
         private void OptimizeJobs()
         {
-            float now = Time.unscaledTime;
-            float minGain = Mathf.Max(0.1f, Plugin.JobMinGain.Value);
+            float minGain = Plugin.JobMinGain.Value;
             foreach (CityState city in State.Cities)
             {
                 if (city.Jobs == null || jobsHeld.Contains(city.Guid))
@@ -955,7 +951,7 @@ namespace PopulationPlanner
                 }
                 if (jobPlans.TryGetValue(city.Guid, out JobPlan plan))
                 {
-                    AdvanceJobPlan(city, plan, now);
+                    AdvanceJobPlan(city, plan);
                     continue;
                 }
                 if (JobLimitReached(city.Guid))
@@ -963,8 +959,8 @@ namespace PopulationPlanner
                     continue;
                 }
                 // Search again only when something changed since the last search found nothing.
-                long stamp = State.Version * 1000003L + Revision * 1009L + (long)(minGain * 100f);
-                if (jobCheckedAt.TryGetValue(city.Guid, out long checkedAt) && checkedAt == stamp)
+                var stamp = (State.Version, Revision, minGain);
+                if (jobCheckedAt.TryGetValue(city.Guid, out var checkedAt) && checkedAt.Equals(stamp))
                 {
                     continue;
                 }
@@ -978,6 +974,7 @@ namespace PopulationPlanner
                     ApprovalFloor = target,
                     CurrentApproval = approval,
                     CurrentFood = FoodOf(city),
+                    FoodMultiplier = city.FoodMultiplier,
                 };
                 JobSwap swap = JobOptimizer.BestSwap(State, city, rules);
                 if (swap == null)
@@ -998,12 +995,11 @@ namespace PopulationPlanner
                 frozenPops.Add(swap.Pop);
                 frozenPops.Add(swap.Partner);
                 swapsThisTurn[city.Guid] = SwapsThisTurn(city.Guid) + 1;
-                jobPlans[city.Guid] = new JobPlan { Swap = swap, Time = now, Attempts = 1 };
-                PostJobMove(swap.Pop, swap.To);
+                jobPlans[city.Guid] = new JobPlan { Swap = swap, Order = JobMove(swap.Pop, swap.To) };
             }
         }
 
-        private void AdvanceJobPlan(CityState city, JobPlan plan, float now)
+        private void AdvanceJobPlan(CityState city, JobPlan plan)
         {
             JobSwap swap = plan.Swap;
             ulong popJob = city.Jobs.CategoryOf(swap.Pop)?.Guid ?? 0UL;
@@ -1016,9 +1012,7 @@ namespace PopulationPlanner
                     return;
                 }
                 plan.Step = 2;
-                plan.Time = now;
-                plan.Attempts = 1;
-                PostJobMove(swap.Partner, swap.From);
+                plan.Order = JobMove(swap.Partner, swap.From);
                 return;
             }
             if (plan.Step == 2 && partnerJob == swap.From)
@@ -1026,26 +1020,16 @@ namespace PopulationPlanner
                 FinishJobPlan(city, plan, asPlanned: true);
                 return;
             }
-            if (now - plan.Time < OrderRetrySeconds)
+            PostOrderResponse answer = plan.Order.Check(State.Version);
+            if (answer == PostOrderResponse.Undefined || (answer == PostOrderResponse.Valid && !plan.Order.SeenSince(State.Version)))
             {
+                // No answer yet, or a state taken after it is still to come.
                 return;
             }
-            if (plan.Attempts >= MaxOrderAttempts)
-            {
-                jobPlans.Remove(city.Guid);
-                Plugin.Log.LogWarning($"Turn {State.Turn}: {Names.City(city)}: the game did not carry out the job swap of {Names.Pop(swap.PopType)} and {Names.Pop(swap.PartnerType)}; leaving them.");
-                return;
-            }
-            plan.Attempts++;
-            plan.Time = now;
-            if (plan.Step == 1)
-            {
-                PostJobMove(swap.Pop, swap.To);
-            }
-            else
-            {
-                PostJobMove(swap.Partner, swap.From);
-            }
+            // Refused, or carried out yet a state taken since shows the population elsewhere: leave them.
+            jobPlans.Remove(city.Guid);
+            Plugin.Log.LogWarning($"Turn {State.Turn}: {Names.City(city)}: the game " + (answer == PostOrderResponse.Valid ? "moved them again" : "refused")
+                + $" during the job swap of {Names.Pop(swap.PopType)} and {Names.Pop(swap.PartnerType)}; leaving them.");
         }
 
         private void FinishJobPlan(CityState city, JobPlan plan, bool asPlanned)
@@ -1080,10 +1064,9 @@ namespace PopulationPlanner
             }
         }
 
-        private static void PostJobMove(ulong pop, ulong job)
+        private static GameOrder JobMove(ulong pop, ulong job)
         {
-            SandboxManager.PostOrder(new OrderSwitchPopulationBetweenCategories(new SimulationEntityGUID[] { pop }, 1, job));
-            StateCapture.RequestRefresh();
+            return new GameOrder(() => new OrderSwitchPopulationBetweenCategories(new SimulationEntityGUID[] { pop }, 1, job));
         }
 
         private void DrainFailures()
@@ -1119,7 +1102,7 @@ namespace PopulationPlanner
                 bool restore = Plugin.RestoreStrategies.Value && Plugin.Automation.Value && (settings == null || (!settings.Off && !settings.JobsOff));
                 if (restore)
                 {
-                    strategyRestores[reset.City] = new PendingOrder { Pop = reset.From, Time = Time.unscaledTime };
+                    strategyRestores[reset.City] = new PendingOrder { Pop = reset.From, Version = State.Version };
                 }
                 strategyNotes[reset.City] = $"The game reset this city's job strategy from {from} to {to} on turn {State.Turn} (it does that to every city when your "
                     + "empire gains or loses a special ability): " + (restore ? $"setting it back to {from}." : "pick it again in the city screen if you want it back.");
@@ -1202,7 +1185,7 @@ namespace PopulationPlanner
             Revision++;
             if (save)
             {
-                saveAt = Time.unscaledTime + 1.5f;
+                saveWanted = true;
             }
         }
 

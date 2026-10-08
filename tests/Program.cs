@@ -59,6 +59,9 @@ namespace PopulationPlanner.Tests
             Run(nameof(LowApprovalCityGrowsXavius), LowApprovalCityGrowsXavius);
             Run(nameof(LowApprovalCityAvoidsLastLordAsCitizen), LowApprovalCityAvoidsLastLordAsCitizen);
             Run(nameof(NewPopApprovalCountsWhereItWillWork), NewPopApprovalCountsWhereItWillWork);
+            Run(nameof(FoodFloorCountsTheCitysMultiplier), FoodFloorCountsTheCitysMultiplier);
+            Run(nameof(ApprovalFirstTakesTheCheapestApproval), ApprovalFirstTakesTheCheapestApproval);
+            Run(nameof(ZeroMinimumNeedsAGain), ZeroMinimumNeedsAGain);
             Run(nameof(ApprovalTargetsFollowSettings), ApprovalTargetsFollowSettings);
             Run(nameof(BonusTextIsPlain), BonusTextIsPlain);
             Console.WriteLine();
@@ -817,6 +820,50 @@ namespace PopulationPlanner.Tests
             var fed = new JobRules { MinGain = 0.5f, ApprovalFirst = true, CurrentApproval = 10f, ApprovalFloor = 28f, CurrentFood = 20f };
             JobSwap move = JobOptimizer.BestSwap(state, city, fed);
             Expect(move != null && move.IsMove && move.To == 3, $"with food to spare: a Citizen to Scribes for approval (got {Show(move)})");
+        }
+
+        // The game multiplies a city's food by its bonuses (Jubilant +30%, collection bonuses +10% each...): a Citizen leaving
+        // takes 4 x 1.5 = 6 Food there, more than the 5 to spare, though 4 alone would fit.
+        private static void FoodFloorCountsTheCitysMultiplier()
+        {
+            GameState state = JobWorld();
+            CityState city = JobCity(state,
+                Job(1, "Job01", 3, Pop(11, "Plain", 3f), Pop(12, "Plain", 3f), Pop(13, "Plain", 3f)),
+                Job(3, "Job03", 3, Pop(31, "Plain", 3f)));
+            var rules = new JobRules { MinGain = 0.5f, ApprovalFirst = true, CurrentApproval = 20f, ApprovalFloor = 28f, CurrentFood = 5f };
+            Expect(JobOptimizer.BestSwap(state, city, rules)?.IsMove == true, "no multiplier: 5 - 4 leaves food to spare");
+            rules.FoodMultiplier = 1.5f;
+            Expect(JobOptimizer.BestSwap(state, city, rules) == null, "with the city's x1.5: 5 - 6 would starve");
+        }
+
+        // A minimum gain of 0 (set in the config file) still moves nobody for nothing: a plain Citizen trading places
+        // with an Artisan of another type but the same output gains 0.
+        private static void ZeroMinimumNeedsAGain()
+        {
+            GameState state = JobWorld();
+            CityState city = JobCity(state,
+                Job(1, "Job01", 2, Pop(11, "Plain", 3f), Pop(12, "Plain", 3f)),
+                Job(2, "Job02", 2, Pop(21, "Other", 3f), Pop(22, "Other", 3f)));
+            Expect(JobOptimizer.BestSwap(state, city, 0f, null) == null, "no swap gaining nothing");
+        }
+
+        // Approval first, the most approval per yield lost comes first: at a Food focus a Last Lord Artisan to the Scribes
+        // (+3 Approval for 2 of yield) before a Last Lord Citizen (+6 for 8), which a fixed boost on approval chose. A
+        // change costing nothing comes before both: here only Last Lords, so no swap.
+        private static void ApprovalFirstTakesTheCheapestApproval()
+        {
+            GameState state = JobWorld();
+            CityState city = JobCity(state,
+                Job(1, "Job01", 3, Pop(11, "LastLord", 3f), Pop(12, "LastLord", 3f), Pop(13, "LastLord", 3f)),
+                Job(2, "Job02", 3, Pop(21, "LastLord", 3f)),
+                Job(3, "Job03", 3));
+            city.Jobs.Weights = new[] { 2f, 0.5f, 1f, 0.5f, 0.5f, 0.5f };
+            JobSwap move = JobOptimizer.BestSwap(state, city, new JobRules { MinGain = 0.5f, ApprovalFirst = true, CurrentApproval = 20f, ApprovalFloor = 28f });
+            Expect(move != null && move.IsMove && move.Pop == 21 && move.To == 3, $"the Artisan moves to the Scribes first (got {Show(move)})");
+            city.Jobs.Find(2).Pops.Add(Pop(22, "Plain", 1f));
+            JobSwap free = JobOptimizer.BestSwap(state, city, new JobRules { MinGain = 0.5f, ApprovalFirst = true, CurrentApproval = 20f, ApprovalFloor = 28f });
+            Expect(free != null && !free.IsMove && free.Delta[Yield.Approval] > 2.9f && Math.Abs(free.Delta[Yield.Food]) < 0.01f,
+                $"a Plain Artisan to trade places with: +3 Approval for nothing first (got {Show(free)})");
         }
 
         // Approval 20 with a target of 28: the city grows Xavius (+4 next to another type, -3 as Citizen = +1) instead

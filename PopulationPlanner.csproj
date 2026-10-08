@@ -7,7 +7,7 @@
     <AssemblyName>PopulationPlanner</AssemblyName>
     <RootNamespace>PopulationPlanner</RootNamespace>
     <!-- The one place to bump the version: also the BepInEx plugin version and the release zip name. -->
-    <Version>1.4.1</Version>
+    <Version>1.4.2</Version>
     <!-- ENDLESS Legend 2 runs Unity 6 on Mono with the .NET 4.x profile. -->
     <TargetFramework>net472</TargetFramework>
     <LangVersion>latest</LangVersion>
@@ -55,7 +55,9 @@
 
     <Reference Include="Assembly-CSharp" HintPath="$(ManagedDir)\Assembly-CSharp.dll" />
     <Reference Include="Amplitude.Mercury.Firstpass" HintPath="$(ManagedDir)\Amplitude.Mercury.Firstpass.dll" Publicize="true" />
-    <Reference Include="$(ManagedDir)\Amplitude*.dll" Exclude="$(ManagedDir)\Amplitude.Mercury.Firstpass.dll" />
+    <!-- Publicized for a settlement's property modifiers (its food multiplier, read in StateCapture). -->
+    <Reference Include="Amplitude.Framework" HintPath="$(ManagedDir)\Amplitude.Framework.dll" Publicize="true" />
+    <Reference Include="$(ManagedDir)\Amplitude*.dll" Exclude="$(ManagedDir)\Amplitude.Mercury.Firstpass.dll;$(ManagedDir)\Amplitude.Framework.dll" />
   </ItemGroup>
 
   <!-- Plugin.Version for [BepInPlugin], from <Version> above. -->

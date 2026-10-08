@@ -84,8 +84,10 @@ below it (plus a small buffer, 3 by default — about what one more Citizen or A
 - grows the population that adds the most approval there (e.g. Xavius next to other types, Noquensii as Scribes),
   counted in the job it will actually work: the one the game places it in by the city's job strategy, or the one
   the mod then moves it to for its own bonus. It avoids ones that cost approval where they would work;
-- puts approval first in its jobs, and may also move populations into free Scribe slots (Scribes cost no approval,
-  Citizens and Artisans -3 each), never so far that the city's food goes negative.
+- puts approval first in its jobs, the moves that give the most approval for the least yield first (one costing
+  nothing before any other), and may also move populations into free Scribe slots (Scribes cost no approval,
+  Citizens and Artisans -3 each), never so far that the city's food goes negative (counting the city's own food
+  bonuses, read from the game: a job's -4 Food is -6 in a city whose food is multiplied by 1.5).
 
 Above the level, no job swap may take a city back under it.
 
@@ -175,10 +177,12 @@ per-city choices are saved per game in `BepInEx/config/PopulationPlanner/<game i
 
 ## How it works
 
-- The game state is read on the game's simulation thread, right after the game copies it for its own UI, and handed
-  to the main thread as an immutable snapshot; nothing in the simulation is modified directly.
+- The game state is read on the game's simulation thread, right after the game copies it for its own UI, whenever
+  the simulation has moved on, and handed to the main thread as an immutable snapshot; nothing in the simulation is
+  modified directly.
 - All changes go through the game's own orders: select growing population, switch population between categories,
-  optimize population assignment.
+  optimize population assignment. The mod waits for the game's answer to each: an order it refuses is not sent again
+  that turn, one it doesn't accept at that moment of the turn is sent again once the game moves on.
 - Collection thresholds (with faction reductions), which bonuses need presence in a city, and every population's job
   effects (formulas included) are decoded from the game data, not hard-coded.
 

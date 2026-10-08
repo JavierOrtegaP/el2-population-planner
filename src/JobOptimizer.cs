@@ -34,15 +34,17 @@ namespace PopulationPlanner
         public float MinGain = 0.5f;
         // Populations moved this turn: not touched again, so swaps can't undo each other.
         public Func<ulong, bool> IsFrozen;
-        // The city is below its minimum approval: approval weighs ApprovalBoost times more, and populations may also
-        // move into free slots (changing how many work each job), e.g. to Scribes, whose job costs no approval.
+        // The city is below its minimum approval: changes that raise approval come before any other, the one giving the
+        // most approval per yield it costs first, and populations may also move into free slots for it (changing how
+        // many work each job), e.g. to Scribes, whose job costs no approval.
         public bool ApprovalFirst;
-        public float ApprovalBoost = 10f;
         // No swap may take the city's approval below this (NaN = no floor).
         public float ApprovalFloor = float.NaN;
         public float CurrentApproval;
-        // The city's food surplus: no change may turn it negative (NaN = not checked).
+        // The city's food surplus: no change may turn it negative (NaN = not checked), counting how much the game
+        // multiplies the jobs' food there (CityState.FoodMultiplier).
         public float CurrentFood = float.NaN;
+        public float FoodMultiplier = 1f;
         // Only changes that raise approval (to work out what reaching an approval level would cost).
         public bool ApprovalMovesOnly;
     }
@@ -80,7 +82,6 @@ namespace PopulationPlanner
 
     internal static class JobOptimizer
     {
-        private const float FoodMargin = 1.25f;
         // A population not grown yet, tried in a copy of the jobs (0 means "none" to Without).
         private const ulong Newcomer = ulong.MaxValue;
 
@@ -89,7 +90,8 @@ namespace PopulationPlanner
             return BestSwap(state, city, new JobRules { MinGain = minGain, IsFrozen = isFrozen });
         }
 
-        // The swap (or move into a free slot) with the largest gain above the minimum, or null.
+        // The swap (or move into a free slot) with the largest gain above the minimum, or null. Approval first, a change
+        // raising approval comes before any other: the most approval per yield it costs first.
         public static JobSwap BestSwap(GameState state, CityState city, JobRules rules)
         {
             JobState jobs = city.Jobs;
@@ -99,11 +101,10 @@ namespace PopulationPlanner
             }
             float minGain = rules.MinGain;
             Func<ulong, bool> isFrozen = rules.IsFrozen;
-            var weights = (float[])jobs.Weights.Clone();
-            if (rules.ApprovalFirst)
-            {
-                weights[Yield.Approval] = Math.Max(weights[Yield.Approval], 0.5f) * rules.ApprovalBoost;
-            }
+            float[] weights = jobs.Weights;
+            bool bestForApproval = false;
+            float bestEfficiency = 0f;
+            float bestYieldGain = 0f;
             var current = new Dictionary<ulong, float[]>();
             foreach (JobCategory category in jobs.Categories)
             {
@@ -164,11 +165,12 @@ namespace PopulationPlanner
                     delta[f] = newFrom[f] + newTo[f] - current[from.Guid][f] - current[to.Guid][f];
                     gain += weights[f] * delta[f];
                 }
-                if (rules.ApprovalMovesOnly && delta[Yield.Approval] <= 1e-3f)
+                bool raisesApproval = delta[Yield.Approval] > 1e-3f;
+                if (rules.ApprovalMovesOnly && !raisesApproval)
                 {
                     return;
                 }
-                bool forApproval = !partner.HasValue && rules.ApprovalFirst && delta[Yield.Approval] > 1e-3f;
+                bool forApproval = !partner.HasValue && rules.ApprovalFirst && raisesApproval;
                 if (!partner.HasValue && !forApproval && !ownMove)
                 {
                     // Plain moves change the head-counts the city's strategy chose: only for approval, or for the
@@ -180,17 +182,44 @@ namespace PopulationPlanner
                     // Would take the city below its minimum approval.
                     return;
                 }
-                if (!float.IsNaN(rules.CurrentFood) && delta[Yield.Food] < -1e-4f && rules.CurrentFood + delta[Yield.Food] * FoodMargin < 0f)
+                if (!float.IsNaN(rules.CurrentFood) && delta[Yield.Food] < -1e-4f && rules.CurrentFood + delta[Yield.Food] * rules.FoodMultiplier < 0f)
                 {
-                    // Would make the city starve (with a margin: food bonuses in percent make the real loss larger).
+                    // Would make the city starve (the game multiplies the jobs' food by the city's food bonuses).
+                    return;
+                }
+                // Approval first, a change raising approval comes before any other, the most approval per yield it costs
+                // first (one costing nothing before any that costs), then the most approval; any other change must gain
+                // something, and at least the minimum, e.g. a +1 Industry job bonus at a Food focus (Industry x0.5) is
+                // worth exactly 0.5.
+                bool approvalTier = rules.ApprovalFirst && raisesApproval;
+                float yieldGain = gain - weights[Yield.Approval] * delta[Yield.Approval];
+                float efficiency = !approvalTier ? 0f : yieldGain >= 0f ? float.PositiveInfinity : delta[Yield.Approval] / -yieldGain;
+                if (!approvalTier && (gain <= 1e-4f || gain < minGain - 1e-4f))
+                {
                     return;
                 }
                 // Ties go to keeping head-counts, then to fewer orders.
                 int rank = partner.HasValue ? (twoOrders ? 1 : 0) : 2;
-                bool better = best == null || gain > best.Gain + 1e-4f || (Math.Abs(gain - best.Gain) <= 1e-4f && rank < Rank(best));
-                // At least the minimum gain: e.g. a +1 Industry job bonus at a Food focus (Industry x0.5) is worth exactly 0.5.
-                if (gain >= minGain - 1e-4f && better)
+                int order;
+                if (best == null || approvalTier != bestForApproval)
                 {
+                    order = best == null || approvalTier ? 1 : -1;
+                }
+                else if (approvalTier)
+                {
+                    order = Compare(efficiency, bestEfficiency);
+                    order = order != 0 ? order : Compare(delta[Yield.Approval], best.Delta[Yield.Approval]);
+                    order = order != 0 ? order : Compare(yieldGain, bestYieldGain);
+                }
+                else
+                {
+                    order = Compare(gain, best.Gain);
+                }
+                if (order > 0 || (order == 0 && rank < Rank(best)))
+                {
+                    bestForApproval = approvalTier;
+                    bestEfficiency = efficiency;
+                    bestYieldGain = yieldGain;
                     best = new JobSwap
                     {
                         City = city.Guid,
@@ -210,6 +239,16 @@ namespace PopulationPlanner
         }
 
         private static int Rank(JobSwap swap) => swap.IsMove ? 2 : swap.TwoOrders ? 1 : 0;
+
+        // 1 when a is larger than b beyond rounding, -1 when smaller, 0 otherwise (infinities equal each other).
+        private static int Compare(float a, float b)
+        {
+            if (float.IsPositiveInfinity(a) || float.IsPositiveInfinity(b))
+            {
+                return float.IsPositiveInfinity(a) == float.IsPositiveInfinity(b) ? 0 : float.IsPositiveInfinity(a) ? 1 : -1;
+            }
+            return a > b + 1e-4f ? 1 : a < b - 1e-4f ? -1 : 0;
+        }
 
         // What a population's own job effects are worth in a job, weighted: those that don't depend on who works next
         // to it (e.g. Green Scion +4 Food as a Citizen, Last Lord -3 Approval as a Citizen).
@@ -351,8 +390,9 @@ namespace PopulationPlanner
                 return result;
             }
             var copy = new CityState { Guid = city.Guid, Jobs = city.Jobs.Clone() };
+            // Each move freezes the populations it moves, so this ends once every one has moved at most once.
             var moved = new HashSet<ulong>();
-            while (approval < target && result.Count < 100)
+            while (approval < target)
             {
                 var rules = new JobRules
                 {
@@ -362,6 +402,7 @@ namespace PopulationPlanner
                     ApprovalMovesOnly = true,
                     CurrentApproval = approval,
                     CurrentFood = food,
+                    FoodMultiplier = city.FoodMultiplier,
                 };
                 JobSwap swap = BestSwap(state, copy, rules);
                 if (swap == null)
